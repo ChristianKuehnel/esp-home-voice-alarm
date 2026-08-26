@@ -1,6 +1,6 @@
 # Product Requirements Document — Alarm Clock
 
-> Reference: Alexa alarm clock features (Amazon Echo / Echo Dot / Echo Spot) + Home Assistant Community Feedback
+> Reference: Amazon Alexa alarm features + Home Assistant Community Feedback
 >
 > **Last updated:** 2026-08-26
 
@@ -8,329 +8,258 @@
 
 ## 1. Vision
 
-Build a voice-controlled alarm clock running on **ESPHome** + **Home Assistant** that delivers the same core alarm experience as **Amazon Alexa**, without requiring a cloud-based voice assistant or proprietary hardware.
+Build a voice-controlled alarm clock running on **ESPHome** + **Home Assistant** that delivers the same core alarm experience as **Amazon Alexa** — without requiring a cloud-based voice assistant or proprietary hardware.
 
-The alarm runs **independently on the ESP32 device**. Once set, it fires at the correct time even if Home Assistant reboots, goes offline, or the Wi-Fi network is down. The ESP32 maintains its own real-time clock (RTC) with automatic NTP synchronization and stores alarm times locally in non-volatile memory.
+The alarm runs **independently on the ESP32 device**. Once set, it fires at the correct time even if Home Assistant reboots, goes offline, or the Wi-Fi network is down. The ESP32 maintains its own real-time clock (RTC) with automatic NTP synchronization and stores alarm and reminder data locally in non-volatile memory (NVS).
 
-The firmware must run on standard ESP32-S3-based voice assistant hardware. Specifically, the following target devices are required:
+The firmware runs on ESP32-S3-based voice assistant hardware, specifically:
 
-| # | Device | URL | Key Specs |
-|---|--------|-----|-----------|
-| D-1 | **Home Assistant Voice PE** | [home-assistant.io/voice-pe](https://www.home-assistant.io/voice-pe/) | ESP32-S3, XMOS XU316 audio processor, 4-microphone array, LCD display, button, buzzer |
-| D-2 | **FutureProofHomes Satellite1** | [futureproofhomes.net](https://futureproofhomes.net/products/satellite1-smart-speaker) | ESP32-S3, XMOS XU316, 4-mic array, 25W amplifier, headphone jack, LD2450 mmWave sensor, temperature/humidity/luminosity sensors |
+| Device | URL | Key Specs |
+|--------|-----|-----------|
+| **Home Assistant Voice PE** | [home-assistant.io/voice-pe](https://www.home-assistant.io/voice-pe/) | ESP32-S3, XMOS XU316, 4-mic array, LCD, button, buzzer |
+| **FutureProofHomes Satellite1** | [futureproofhomes.net](https://futureproofhomes.net/products/satellite1-smart-speaker) | ESP32-S3, XMOS XU316, 4-mic array, 25W amp, headphone, mmWave, sensors |
 
-Both devices share a common foundation: ESP32-S3 SoC, XMOS voice processor (I2S audio pipeline), and ESPHome-native firmware. This PRD targets a firmware that runs on both platforms, with device-specific configuration files for each.
-
----
-
-## 2. Alexa Alarm Feature Reference
-
-The following features are observed from Amazon's Alexa alarm implementation across Echo, Echo Dot, and Echo Spot devices. These form the baseline feature set this project targets.
-
-### 2.1 Alarm Creation & Management
-
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.1.1 | Single alarm | Set one-time alarm at a specific time | _"Alexa, set an alarm for 7 AM"_ |
-| 2.1.2 | Repeating alarm | Set alarm to repeat on selected days | _"Alexa, set an alarm for 7 AM every day"_, _"every weekday"_, _"every Saturday"_ |
-| 2.1.3 | Named alarm | Label alarms for easy management (useful when multiple alarms exist) | _"Alexa, set an alarm called Gym for 6 AM on weekdays"_ |
-| 2.1.4 | AM/PM disambiguation | If only hour is given, Alexa prompts AM or PM (or defaults to the closest time) | _"Alexa, set an alarm for 7"_ → Alexa asks AM or PM |
-| 2.1.5 | Alarm listing | Query all currently set alarms | _"Alexa, what alarms are set?"_ |
-| 2.1.6 | Alarm editing | Modify an existing alarm's time, sound, or days | Via Alexa app or _"Alexa, change my 7 AM alarm to 8 AM"_ |
-| 2.1.7 | Alarm deletion | Cancel a specific alarm or all alarms | _"Alexa, cancel my 7 AM alarm"_, _"Alexa, delete all alarms"_ |
-| 2.1.8 | Multiple alarms | Support multiple independent alarms simultaneously | Default capability, no explicit limit known |
-
-### 2.2 Snooze
-
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.2.1 | Snooze on ringing | Pause the alarm for a configurable interval (default ~9 minutes) | _"Alexa, snooze"_ |
-| 2.2.2 | Snooze length | Configurable snooze duration (typically 1–30 minutes) | Set via Alexa app — Alarms & Timers → Settings |
-
-### 2.3 Alarm Sounds
-
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.3.1 | Default tones | Built-in alarm tones (several pre-loaded sounds) | Default behavior |
-| 2.3.2 | Music alarm | Wake up to a specific song, artist, or playlist | _"Alexa, wake me up to Bohemian Rhapsody at 7 AM"_ |
-| 2.3.3 | Radio alarm | Wake up to a radio station | _"Alexa, set alarm to BBC Radio 1 at 7 AM"_ |
-| 2.3.4 | Service integration | Amazon Music, Spotify, Pandora, and other linked services available as alarm sounds | Set via Alexa app — Alarms & Timers → Sound |
-| 2.3.5 | Artist radio | Play an internet radio station based on an artist | _"Alexa, wake me up to Coldplay radio"_ |
-| 2.3.6 | Sound selection per alarm | Each alarm can have its own individual sound | Set via Alexa app per alarm |
-
-### 2.4 Volume & Wake Behavior
-
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.4.1 | Alarm volume | Set alarm volume independently of media volume | Alexa app — Alarms & Timers → Settings → Volume |
-| 2.4.2 | Ascending volume | Gradually increase alarm volume over time for gentler wake-up | Alexa app toggle — also settable via voice: _"set an alarm with ascending volume"_ |
-| 2.4.3 | Silence after | Auto-stop alarm after a configurable duration | Alexa app — Alarms & Timers → Settings → Silence after |
-
-### 2.5 Alarm Dismissal
-
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.5.1 | Stop alarm | Silently dismiss the alarm | _"Alexa, stop"_ / _"Alexa, turn off"_ |
-| 2.5.2 | Snooze | See 2.2.1 | _"Alexa, snooze"_ |
-| 2.5.3 | Cancel alarm | Cancel (delete) the ringing alarm entirely | _"Alexa, cancel"_ |
-
-### 2.6 Offline / Fallback Behavior
-
-| # | Feature | Description |
-|---|---------|-------------|
-| 2.6.1 | Offline alarm firing | The alarm still fires at the correct time even without Wi-Fi / internet. A local RTC keeps time. |
-| 2.6.2 | Sound fallback | If Wi-Fi is unavailable and the alarm was configured to play music/radio, Alexa falls back to the default alarm tone after ~1 minute. |
-| 2.6.3 | Offline stop | _"Alexa, stop"_ works to silence the alarm offline. |
-| 2.6.4 | Offline limitations | Voice commands like _"snooze"_ or _"cancel"_ may not work offline (requires cloud NLU). |
-
-### 2.7 Out of Scope — Smart Home Integration (Morning Routines)
-
-| # | Feature | Description |
-|---|---------|-------------|
-| 2.7.1 | Alarm-triggered routines | When an alarm is dismissed, trigger automations (routines) — e.g., turn on lights, adjust thermostat, play news. |
-| 2.7.2 | Scheduled routines | Independent of alarm: routines triggered by schedule (e.g., lights gradually brighten 30 min before wake-up). |
-| 2.7.3 | Device actions | Control smart lights, plugs, thermostats, blinds, TV, and any Alexa-compatible device as routine actions. |
-| 2.7.4 | Information delivery | Weather, calendar, news briefings as part of morning routine. |
-
-Morning Routines und Smart Home Automationen sind **Out of Scope** für dieses Projekt. Die Alarm-Funktionalität bleibt auf das reine Wecker-Feature beschränkt (Firing, Snooze, Dismissal, Sound). Smart Home Integration über HA/Automations kann bei Bedarf über Home Assistant-Konfiguration nachgeschaltet werden und gehört nicht in die ESPHome-Firmware.
-
-### 2.8 Out of Scope — Physical Hardware
-
-| # | Feature (from Alexa reference) |
-|---|-------------------------------|
-| 2.8.1 | Clock display (LED / LCD / touchscreen) |
-| 2.8.2 | Night mode (auto-dim display) |
-| 2.8.3 | Speaker hardware (speaker size, amplifier wattage) |
-| 2.8.4 | Button hardware design and layout |
-
-Das Projekt definiert **keine eigene Hardware**. Die Zielgeräte (Home Assistant Voice PE, FutureProofHomes Satellite1) bringen ihre eigene Hardware mit. Das Projekt ist rein als ESPHome-Firmware konzipiert, die auf der bestehenden Hardware dieser Geräte aufsetzt.
-
-In scope sind jedoch die **softwareseitigen Abstraktionen** für Komponenten, die auf allen Zielgeräten vorhanden sind:
-
-| Abstraktion | Detail | Umsetzen |
-|-------------|--------|----------|
-| **Alarmlautstärke** | Eigener Lautstärkeregler für Alarmsounds (getrennt vom Medien-Lautstärkepegel), konfigurierbar über ESPHome `number` entity und Voice Command | ESPHome `volume_component` oder `output` mit `volume` sensor, exposed als `Number` entity |
-| **Tastensteuerung** | Taste auf dem Gerät zum Stoppen/Snoozen des Alarms — Firmware muss den Tastendruck erkennen und den aktuellen Alarm-Zustand ändern (idle → ringing → stopped/snoozed) | ESPHome `binary_sensor` mit `ONCE`/`DOUBLE_CLICK` triggers, State-Maschine im Firmware-Code |
-
-Diese beiden Abstraktionen arbeiten unabhängig von der konkreten Hardware: Die Firmware referenziert standardisierte ESPHome-Entities, die auf den Zielgeräten bereits definiert sind. Device-spezifische Config-Files (Voice PE vs. Satellite1) binden die jeweiligen Hardware-Komponenten an die gemeinsamen Software-Abstraktionen an.
-
-### 2.9 Out of Scope — Timers
-
-| # | Feature | Description |
-|---|---------|-------------|
-| 2.9.1 | Count-down timer | Set a timer for a duration (minutes/hours) |
-| 2.9.2 | Timer listing | Query all active timers |
-| 2.9.3 | Timer naming | Name timers for easier management |
-| 2.9.4 | Timer stop | Cancel a running timer |
-
-Timer sind **bereits in Home Assistant Voice PE implementiert** und nicht Teil dieses Projekts. Die Timer-Integration in HA Voice PE dient jedoch als Referenzarchitektur: Wir analysieren die bestehende Timer-Implementierung (State-Maschine, NLU-Intent-Verarbeitung, NTP-Sync, Audio-Ausgabe), um den Alarm auf einer ähnlichen technischen Basis aufzubauen. Besonders relevant sind die Referenz-Implementierung für:
-
-- **State-Maschine** für Timer-Zustände (idle → counting → ringing → stopped/snoozed)
-- **NLU-Intent-Verarbeitung** über den Voice Assistant Pipeline (ESPHome → HA → back)
-- **NTP-basierte Synchronisation** des Countdowns
-- **Audio-Ausgabe** (Fogbeep, Sprachansagen, Fade-in)
-
-### 2.10 Reminder
-
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.10.1 | Time-based reminder | Set a reminder to fire at a specific time with a configurable notification text | _"Alexa, remind me to leave now at 3 PM"_ |
-| 2.10.2 | Duration-based reminder | Set a reminder that fires after a duration (e.g., "remind me in 20 minutes") | _"Alexa, remind me in 20 minutes"_ |
-| 2.10.3 | Named notification | The reminder text is spoken aloud when the reminder fires | Device says: "Remember to leave now" |
-| 2.10.4 | Reminder listing | Query all currently set reminders | _"Alexa, what reminders do I have?"_ |
-| 2.10.5 | Reminder dismissal | Stop a ringing reminder | _"Alexa, stop"_ |
-| 2.10.6 | Reminder deletion | Cancel a scheduled reminder | _"Alexa, delete my 3 PM reminder"_ |
-
-Reminders differ from alarms: they fire once (non-repeating) and play back a user-defined notification message instead of a tone. The reminder message is stored locally alongside the alarm time and spoken via TTS when the reminder fires. Like alarms, reminders must work offline using the local RTC and NVS storage.
+Both devices share ESP32-S3 SoC + XMOS I2S audio pipeline + ESPHome-native firmware. Device-specific ESPHome config files (one per device) bind hardware components to the common firmware abstractions.
 
 ---
 
-## 3. Home Assistant Community Requirements
+## 2. Background
 
-The following requirements are derived from ongoing community discussions in the Home Assistant ecosystem. This feature is a well-known gap that prevents users from fully replacing cloud-based assistants.
+### 2.1 Alexa Feature Reference
 
-### 3.1 Key Discussions & Sources
+The following features from Amazon's Alexa alarm implementation (Echo, Echo Dot, Echo Spot) form the baseline target for this project. Sections 2.2–2.7 below identify which ones are **in scope** and which are **out of scope**.
 
-| # | Source | Title | Date |
-|---|--------|-------|------|
-| 3.1.1 | GH `home-assistant/discussions#559` | Add ability to set alarms on Voice Assistants (soonerfan237) | Aug 7, 2025 |
-| 3.1.2 | GH `home-assistant/architecture#1089` | Alarm clock support (architectural proposal) | — |
-| 3.1.3 | GH `home-assistant/architecture#1046` | Add basic set of intents for time/tasks management (Alexa parity) | Feb 27, 2024 |
-| 3.1.4 | HA Community #853987 | Alarm clock with voice (Feature Requests) | Feb 24, 2025 |
-| 3.1.5 | HA Community #862776 | Alarms and Reminders with Intents | Mar 12, 2025 |
-| 3.1.6 | HA Community #823282 | Set Alarm on Assistant from within automation | Jan 6, 2025 |
-| 3.1.7 | HA Community #859334 | Create alarm on voice assistant from Home Assistant | Mar 6, 2025 |
-| 3.1.8 | HA Community #981426 | Any word on getting ability to set alarms & reminders? | Jan 31, 2026 |
-| 3.1.9 | HA Community #821612 | Automating Timers on HA Voice PE for Wake-up Alerts | Jan 4, 2025 |
-| 3.1.10 | HA Community #847108 | SOAS — Full featured alarm clock with HA integration | Feb 23, 2025 |
-| 3.1.11 | GH `esphome/home-assistant-voice-pe#467` | Feature proposal: Local Alarm on the device (Voice PE) | Oct 7, 2025 |
-| 3.1.12 | GH `Skons/SOAS` | ESP32 Alarm clock with Home Assistant integration | — |
-| 3.1.13 | GH `mmakaay/esphome-alarm-clock` | ESPHome alarm clock example configuration | — |
-| 3.1.14 | GH `8bitmcu/ESPHome_AlarmClock` | ESP32/D1 mini based Alarm Clocks running ESPHome | — |
-| 3.1.15 | HA Community #886249 | DIY ESP32 Alarm Panel with ESPHome | May 6, 2025 |
-| 3.1.16 | HA Community #910037 | Alarm clock integration and Lovelace card | Jul 11, 2025 |
-| 3.1.17 | GH `esphome/feature-requests#1333` | Support for HA's Input Integrations (alarm with HA automations) | Aug 2, 2021 |
+**Alarm Creation & Management**
+
+| Feature | Description |
+|---------|-------------|
+| Single alarm | Set one-time alarm at a specific time |
+| Repeating alarm | Set alarm to repeat on selected days |
+| Named alarm | Label alarms for easy management |
+| AM/PM disambiguation | Alexa prompts or defaults if only hour is given |
+| Alarm listing | Query all currently set alarms |
+| Alarm editing | Modify an existing alarm's time, sound, or days |
+| Alarm deletion | Cancel a specific alarm or all alarms |
+| Multiple alarms | Support multiple independent alarms simultaneously |
+
+**Snooze** — Pause the alarm for a configurable interval (default ~9 min) via voice or button.
+
+**Alarm Sounds** — Built-in tones, music alarm (HA media player), sound selection per alarm.
+
+**Volume & Wake Behavior** — Independent alarm volume, ascending volume (fade-in), silence-after timer.
+
+**Alarm Dismissal** — Stop (silently dismiss), snooze, cancel (delete) via voice or button.
+
+**Offline Behavior** — Alarm fires without Wi-Fi using local RTC; default tone fallback for cloud-dependent sounds; offline stop works.
+
+**Smart Home Routines** — Alarm-triggered automations (lights, thermostat, news).
+
+**Physical Hardware** — Clock display, night mode, speaker hardware, button layout.
+
+**Timers** — Count-down timers with listing, naming, and stop.
+
+### 2.2 Competitive Landscape
+
+A survey of existing ESP32/Home Assistant alarm clock implementations shows **no viable base for fork or reuse**. All alternatives are either significantly more limited in scope or fundamentally architecturally incompatible:
+
+| Project | Approach | Why not usable as base |
+|---------|----------|------------------------|
+| **mmakaay/esphome-alarmclock** | ESPHome GPIO example (relais trigger) | No audio, no snooze, no voice, no RTC backup. Rebuilds 80% of what we need. |
+| **aclight/esphome-alarmclock** | Standalone ESP32-S3 with Elecrow touchscreen | Hardware-bound to 4.3" display panel, no HA integration, no voice. |
+| **Skons/SOAS** | ESP32 + ESPHome + HA intents | No offline RTC, no voice commands, no snooze, no reminders. Alarm fires only if HA sends message. **Architecturally HA-dependent** — our offline-first NFR-01 is impossible. |
+| **HA-Alarms-and-Reminders** | HA custom component → Voice Satellite audio | Alarm state lives in HA, satellite is only a speaker. If HA goes down, no alarms. **Centralized architecture** — opposite of our offline-first principle. |
+| **HA-Alarm-Clock** | HA custom component (builds on HA-Alarms-and-Reminders) | HA-media-player centric, no ESP32 offline, no voice commands. |
+| **HA-Assist-Alarms-NL** | NL-specific voice intents → ESPHome satellites | HA-dependent, language-locked to Dutch, no offline capability. |
+| **qingping-cgd1** | BLE integration for Qingping alarm clock hardware | Proprietary BLE hardware, HA-dependent. |
+
+**Conclusion:** No existing project can be forked or extended as a starting point. Each either lacks core functionality (audio, snooze, voice, reminders) or uses a fundamentally incompatible architecture (HA-centralized vs. our device-native offline-first design).
+
+**Recommendation:** Clean-room implementation that leverages existing ESPHome/HA framework components (see §2.3) rather than forking any specific project.
+
+### 2.3 Technical Foundations — What Exists in ESPHome & HA
+
+This project builds on extensively battle-tested ESPHome and Home Assistant infrastructure. The table below shows what we **reuse** versus what we **implement**:
+
+| Layer | Component | Status | Usage in our project |
+|-------|-----------|--------|---------------------|
+| **Voice Pipeline** | ESPHome `voice_assistant` / `assist_pipeline` | ✅ Existing | Wake Word → Transcription → Assist Intents → Audio Response. We extend intents with `SetAlarm`, `CancelAlarm`, `SetReminder`. |
+| **Timer State Machine** | Timer implementation in ESPHome | ✅ Existing | State machine (idle → counting → ringing → stopped), NLU intent parsing, NTP sync, audio output (Fogbeep, TTS, fade-in). Our reference model. |
+| **ESPHome Native API** | aioesphomeapi | ✅ Existing | Standard entity communication (BinarySensor, Number, Text, etc.) between HA and ESP32. No custom protocols. |
+| **NVS / Preferences** | ESPHome NVS storage | ✅ Existing | Persistent storage on ESP32 flash for alarms and reminders across reboots. |
+| **NTP Client** | ESPHome NTP component | ✅ Existing | RTC synchronization for long-term accuracy. |
+| **I2S Audio** | ESPHome `i2s_audio` + XMOS pipeline | ✅ Existing | Audio output to speaker. Voice PE already uses XMOS XU316 I2S pipeline. |
+| **Binary Sensor** | ESPHome `binary_sensor` | ✅ Existing | Physical button detection (`ONCE`/`DOUBLE_CLICK`/`LONG_PRESS`). |
+| **Media Player** | ESPHome `media_player` component | ✅ Existing | Volume control and music alarm playback (v2). |
+| **ESPHome Config Schema** | Native YAML config system | ✅ Existing | Device-specific config files for Voice PE and Satellite1. |
+| **HA Assist Intents** | `SetTimer`, `CancelTimer`, `GetTime` | ✅ Existing | We extend the intent system with alarm/reminder intents in the same pattern. |
+
+**What we implement (not existing):**
+
+| Component | What it does |
+|-----------|-------------|
+| **Alarm State Machine** | Offline-first: alarm ticks independently on ESP32 RTC, not HA-driven. |
+| **NVS Alarm Storage** | Structured storage for alarm/reminder entries (times, recurrence, sound, text). |
+| **Local RTC Timer Tick** | Periodic check (e.g. every second) against local RTC, not HA polling. |
+| **Reminder Text + TTS** | User-defined notification text stored locally, spoken via TTS on fire. |
+| **Custom ESPHome Component** | Unified alarm + reminder entity exposing the state machine via ESPHome API. |
+
+---
+
+## 3. Requirements
+
+Requirements are categorized by their origin:
+
+| Tag | Origin |
+|-----|--------|
+| **[A X.X]** | Alexa feature from §2.1 reference |
+| **[R-X]** | Community-driven requirement (see RCM table below) |
+| **[UR-X]** | User requirement from project owner (see UR table below) |
+| **[NFR-X]** | Non-functional requirement (see §4) |
+| **[C #XXXXX]** | Home Assistant community discussion or GitHub issue |
+
+### 3.1 User Requirements
+
+Fundamental constraints from the project owner:
+
+| # | Requirement | Detail |
+|---|-------------|--------|
+| UR-01 | **RTC-backed alarm — works without network** | The ESPHome device maintains its own RTC. Alarms fire at the correct time regardless of network connectivity. |
+| UR-02 | **Automatic RTC synchronization via NTP** | ESP32 syncs RTC via NTP when network is available. No manual time setting. |
+| UR-03 | **Local alarm storage** | Alarm times and settings stored in non-volatile memory (NVS/Preferences) on the ESP32. Alarms survive reboots and network outages. |
+| UR-04 | **Reminders (time-based notifications)** | Users set a one-time reminder with configurable notification text (e.g. "drive now"). Device speaks the message aloud when the reminder fires. Works offline like alarms. |
 
 ### 3.2 Community-Driven Requirements
 
-#### 3.2.1 Voice Command Support (from Discussion #559, Community #853987)
+| # | Requirement | Detail | Source |
+|---|-------------|--------|--------|
+| R-voice-01 | Set alarms via voice commands through the Voice Assistant pipeline | Last barrier preventing HA Voice PE users from replacing Nest/Alexa | [C #853987], [C #559] |
+| R-voice-02 | Verbal confirmation after setting an alarm | "Okay, your alarm is set for 7 AM" — builds user confidence | [C #853987] |
+| R-voice-03 | Stop ringing by voice: "stop" | Must work like Voice PE timers — parity expected | [C #559] |
+| R-voice-04 | Support alarms and reminders via intents | Same intent framework as existing timers | [C #862776] |
+| R-offline-01 | Alarm fires independently on ESP32 | Not dependent on HA being online | [C #559], [C #467] |
+| R-offline-02 | Alarm persistent without HA once set | Similar to timer behavior | [C #467] |
+| R-offline-03 | RTC with automatic NTP synchronization | **Mandatory** for offline operation | **UR-02** |
+| R-offline-04 | Local alarm storage in NVS/Preferences | **Mandatory** for reboot/network resilience | **UR-03** |
+| R-offline-05 | Physical button to stop/snooze alarm | Hardware fallback when voice is unavailable | [C #559], [C #467] |
+| R-offline-06 | Default alarm sound plays locally | No network required for alarm audio | [C #559] |
+| R-ha-01 | Set alarms from HA automations | Programmatic alarm triggering | [C #823282] |
+| R-ha-02 | Alarm entity via ESPHome native API | Other satellites/devices can interact with alarm state | [C #559] |
+| R-ha-03 | Seamless integration with HA alarm-related integrations | Compatible with existing/future integrations | [C #1089] |
+| R-ha-04 | Alarm state visible in HA frontend / dashboards | Lovelace cards for alarm management | [C #910037] |
+| R-ha-05 | Current alarm state propagated to HA | idle / ringing / snoozing → HA automation triggers | [C #1089] |
+| R-audio-01 | Stop alarms and reminders by device button | Physical button as primary dismissal method | [C #862776] |
+| R-audio-02 | Allow custom ringtones via media sources or URL | Not limited to built-in tones | [C #862776] |
+| R-audio-03 | Speaker audio detection | Verify alarm is actually audible | SOAS, [C #847108] |
+| R-audio-04 | Alarm volume independent of media volume | Separate volume control for alarm sounds | [C #559], Alexa 2.4 |
 
-| # | Requirement | Rationale |
-|---|-------------|-----------|
-| R-voice-01 | Set alarms via voice commands through the Voice Assistant pipeline | The last barrier preventing households from replacing Nest/Alexa with HA Voice PE (Community #853987) |
-| R-voice-02 | Verbal confirmation after setting an alarm | "Okay, your alarm is set for 7 AM" — builds user confidence |
-| R-voice-03 | Stop ringing by voice: "stop" | Must work like Voice PE timers — users expect parity (Discussion #559) |
-| R-voice-04 | Support alarms and reminders via intents | Community #862776 — same intent framework as existing timers |
+### 3.3 Functional Requirements
 
-#### 3.2.2 Local-First / Offline Operation (from Discussion #559, Voice PE #467, User Requirement)
+| # | Feature | Priority | Detail | Sources |
+|---|---------|----------|--------|---------|
+| **FR-01** | Single alarm set/delete | P0 | Set and delete one-time alarms on the ESP32 | [A 2.1.1], [UR-01] |
+| **FR-02** | Repeating alarm | P0 | Daily / weekday / custom day-of-week patterns | [A 2.1.2], [UR-01] |
+| **FR-03** | RTC-backed alarm firing | P0 | Alarm fires independently on ESP32 without network | [UR-01], [NFR-01] |
+| **FR-04** | RTC NTP synchronization | P0 | Automatic sync when network is available | [UR-02], [NFR-08] |
+| **FR-05** | Local alarm storage | P0 | Alarms stored in NVS on ESP32 flash | [UR-03], [NFR-07] |
+| **FR-06** | Snooze | P0 | Configurable duration (default 9 min) | [A 2.2], [R-offline-05] |
+| **FR-07** | Multiple simultaneous alarms | P0 | Independent alarms, no explicit limit | [A 2.1.8] |
+| **FR-08** | Alarm sound selection | P0 | At least 3 built-in tones | [A 2.3.1], [R-audio-02] |
+| **FR-09** | Alarm volume control | P0 | Independent of media volume | [A 2.4.1], [R-audio-04] |
+| **FR-10** | Physical snooze/stop button | P0 | Button detection and state-machine response | [R-offline-05], [R-audio-01], [A 2.5.1] |
+| **FR-11** | Alarm state entity via ESPHome API | P0 | State exposed to Home Assistant | [R-ha-02], [R-ha-05] |
+| **FR-12** | Voice command: set alarms | P1 | Through Voice Assistant pipeline | [R-voice-01] |
+| **FR-13** | Voice command: stop ringing | P1 | "stop" response while ringing | [R-voice-03], [A 2.5.1] |
+| **FR-14** | Verbal confirmation | P1 | Confirms alarm was set | [R-voice-02] |
+| **FR-15** | Alarm listing | P1 | "What alarms are set?" | [A 2.1.5] |
+| **FR-16** | Default alarm sound (offline) | P1 | Built-in tones play without network | [R-offline-06] |
+| **FR-17** | Alarm volume software abstraction | P1 | Standardized entity interface, device-agnostic | [A 2.4.1], [§2.2 Hardware] |
+| **FR-18** | Single reminder set/delete | P1 | One-time reminder on ESP32 | [UR-04], [A 2.10.1] |
+| **FR-19** | Reminder notification text | P1 | TTS speaks user-defined text on fire | [UR-04], [A 2.10.3] |
+| **FR-20** | Reminder listing | P2 | "What reminders do I have?" | [A 2.10.4] |
+| **FR-21** | Reminder dismissal | P2 | Stop a ringing reminder | [A 2.10.5] |
+| **FR-22** | Reminder deletion | P2 | Cancel a scheduled reminder | [A 2.10.6] |
+| **FR-23** | Music alarm | P2 | Play media via HA media player | [A 2.3.2] |
+| **FR-24** | Named alarms | P2 | Labels for alarm management | [A 2.1.3] |
+| **FR-25** | Duration-based reminder | P2 | "remind me in 20 minutes" | [A 2.10.2] |
+| **FR-26** | Set alarm from HA automations | P3 | Service call trigger | [R-ha-01] |
+| **FR-27** | Alarm-triggered HA automations | P3 | Alarm dismissed → trigger routines | [A 2.7.1], [R-ha-04] |
+| **FR-28** | Reminders via intents | P3 | Full intent framework support | [R-voice-04] |
+| **FR-29** | Custom ringtones (URL/media source) | P3 | Not limited to built-in tones | [R-audio-02] |
+| **FR-30** | Alarm state in Lovelace dashboard | P3 | Visual alarm management | [R-ha-04] |
+| **FR-31** | Pre-alarm routines (gradual light-up) | P4 | Fade-in behavior before alarm fires | [A 2.4.2] |
+| **FR-32** | Information briefing | P4 | Weather, calendar at wake time | [A 2.7.4] |
+| **FR-33** | Audio detection | P4 | Verify speaker output is audible | [R-audio-03] |
 
-| # | Requirement | Rationale |
-|---|-------------|-----------|
-| R-offline-01 | Alarm fires independently on the ESP32 — not dependent on HA being online | Discussion #559: "Alarms not affected if Home Assistant reboots or goes temporarily offline overnight" |
-| R-offline-02 | Alarm runs locally on the ESP, settable from HA via voice but persistent without HA | Voice PE #467: "Something that is running locally on the ESP... independent from HA once it's set, similar to the timer" |
-| R-offline-03 | **RTC with automatic NTP synchronization** — ESP32 has its own real-time clock that syncs when network is available | **User requirement**: Alarm must work with no network connection. RTC maintains time; NTP syncs when online. |
-| R-offline-04 | **Local alarm storage** — alarm times stored in non-volatile memory (NVS/Preferences) on the ESP32 | **User requirement**: Alarms persist across reboots and network outages |
-| R-offline-05 | Physical button to stop/snooze alarm (hardware fallback when voice is unavailable) | Voice PE #467, Discussion #559 |
-| R-offline-06 | Default alarm sound plays locally — no network required for the alarm sound itself | Discussion #559 fallback behavior |
+### 3.4 Out of Scope
 
-#### 3.2.3 Home Assistant Integration (Community #823282, #859334, Architecture #1089)
+These features are explicitly excluded from this project.
 
-| # | Requirement | Rationale |
-|---|-------------|-----------|
-| R-ha-01 | Ability to set alarms from within HA automations | Community #823282 — users want to trigger alarms programmatically |
-| R-ha-02 | Alarm entity exposed via ESPHome native API (aioesphomeapi) so other satellites can interact | Discussion #559: "maybe you also need to extend ESPHome's native API so other satellites can be used" |
-| R-ha-03 | Seamless integration with existing/future alarm-related integrations | Architecture #1089: "Enable seamless integration with existing and future alarm-related integrations" |
-| R-ha-04 | Alarm state visible in HA frontend / dashboards | Community #910037 — users want Lovelace cards for alarm management |
-| R-ha-05 | Current alarm state propagated to HA (idle / ringing / snoozing) | Architecture #1089 — HA needs to know alarm state for automation triggers |
+**Smart Home Routines** — Alarm-triggered automations (lights, thermostat, news briefings) are out of scope [A 2.7]. Morning routines can be implemented as Home Assistant automations triggered by the alarm entity state. This keeps the firmware focused on core alarm functionality.
 
-#### 3.2.4 Device & Audio Features (Community #862776, Voice PE #467)
+**Physical Hardware** — Clock displays, night mode, speaker hardware, button design are out of scope. The project is firmware-only and runs on existing devices. Software abstractions for alarm volume and button control are in scope.
 
-| # | Requirement | Rationale |
-|---|-------------|-----------|
-| R-audio-01 | Stop alarms and reminders by pressing a button on ESPHome device | Community #862776 — physical button as primary dismissal method |
-| R-audio-02 | Allow custom ringtones via media sources or URL inputs | Community #862776 — not limited to built-in tones |
-| R-audio-03 | Speaker audio detection — detect if sound is actually coming from the speaker | SOAS / Community feedback — verify alarm is audible |
-| R-audio-04 | Volume control for alarm independently of media volume | Discussion #559, Alexa parity |
-
-#### 3.2.5 Current Workarounds & Pain Points (Community #853987, #981426)
-
-| # | Pain Point | Implication |
-|---|------------|-------------|
-| R-pain-01 | Users create timer automations as a hack for alarms — requires creating/managing many helpers + voice triggers | Community #853987: "For something this critical, I would feel much more confident with a default integration" |
-| R-pain-02 | Voice PE users cannot set alarms — missing the one feature that keeps them from fully replacing Google Nest | Community #981426: "I have a nearly perfect voice pipeline setup that does everything I want (except alarms)" |
-| R-pain-03 | No way to set alarms on Voice Assistant from automations — forces manual voice command | Community #823282, #859334 |
+**Timers** — Count-down timers are already implemented in Home Assistant Voice PE and are not part of this project. The Timer implementation serves as our **reference architecture** for state machine design, NLU intent processing, and audio output — see §2.3.
 
 ---
 
-## 4. User Requirements
-
-These are specific requirements from the project owner (Christian Kühnel):
+## 4. Non-Functional Requirements
 
 | # | Requirement | Detail |
 |---|-------------|--------|
-| UR-01 | **RTC-backed alarm — works without network** | The ESPHome device has its own real-time clock (RTC) that keeps time when Wi-Fi is down. Alarms fire at the correct time regardless of network connectivity. |
-| UR-02 | **Automatic RTC synchronization via NTP** | When network is available, the ESP32 syncs its RTC via NTP to ensure long-term accuracy. No manual time setting required. |
-| UR-03 | **Local alarm storage** | Alarm times are stored locally on the ESP32 in non-volatile memory (NVS/Preferences). Alarms survive reboots and network outages. |
-| UR-04 | **Reminders (time-based notifications)** | Users can set a one-time reminder with a configurable notification text (e.g. "drive now"). The device speaks the reminder message aloud when the reminder time arrives. Reminders work offline like alarms (local RTC + NVS storage). |
+| **NFR-01** | **Reliability** | Alarm fires at the correct time ±1 second. Offline operation is mandatory [UR-01]. |
+| **NFR-02** | **Latency** | Alarm sound starts within 2 seconds of trigger time. |
+| **NFR-03** | **Power failure** | RTC maintains time during power loss. ESP32 internal RTC drift ~±20 ppm → needs NTP sync (UR-02). External RTC (DS3231, ±2 ppm) for production hardware. |
+| **NFR-04** | **Privacy** | No voice data sent to external cloud. All NLU runs locally via Home Assistant Voice Assistant. |
+| **NFR-05** | **Extensibility** | Architecture supports adding new alarm sounds and trigger actions without firmware updates. |
+| **NFR-06** | **Audibility** | Alarm sound ≥70 dB at 1 meter with typical speaker hardware. |
+| **NFR-07** | **Persistence** | Alarm configuration survives reboots and network outages (NVS/Preferences) [UR-03]. |
+| **NFR-08** | **NTP accuracy** | RTC drift compensated by NTP sync when network available. ≤1 second drift after 24h offline. |
+| **NFR-09** | **HA/ESPHome standards compliance** | All interfaces follow ESPHome native API (aioesphomeapi), HA entity model (BinarySensor, Number, Text, etc.), service schemas, and config structure. Enables seamless upstream integration into ESPHome and HA without custom adapters. |
 
 ---
 
-## 5. Target Feature Set for v1
+## 5. Version Roadmap
 
-Based on the Alexa reference, community feedback, and user requirements, the following features are prioritized for the initial release:
+**v1 (Must Have)** — FR-01 through FR-19: Core alarm + single reminder with voice commands, offline RTC, snooze, multiple alarms, sound selection, volume control, physical button, HA entity exposure.
 
-### Must Have (v1)
+**v2 (Should Have)** — FR-20 through FR-25: Extended reminders, music alarm via HA media player, named alarms.
 
-| Priority | Requirement | Source |
-|----------|-------------|--------|
-| P0 | Single alarm set/delete (local on ESP32) | Alexa 2.1 + UR-01 |
-| P0 | Repeating alarm (daily / weekday / custom days) | Alexa 2.1.2 + UR-01 |
-| P0 | **RTC-backed alarm — works without network** | **UR-01** |
-| P0 | **Automatic RTC NTP synchronization** | **UR-02** |
-| P0 | **Local alarm storage (NVS/Preferences)** | **UR-03** |
-| P0 | Snooze (configurable duration, default 9 min) | Alexa 2.2 + R-offline-05 |
-| P0 | Multiple simultaneous alarms | Alexa 2.1.8 |
-| P0 | Alarm sound selection (at least 3 built-in tones) | Alexa 2.3.1 + R-audio-02 |
-| P0 | Alarm volume control | Alexa 2.4.1 + R-audio-04 |
-| P0 | **Physical snooze/stop button** | R-offline-05 + R-audio-01 + §2.8 (Tastensteuerung) |
-| P0 | **Alarm state entity exposed via ESPHome native API** | R-ha-02 + R-ha-05 |
-| P1 | Voice command: set alarms | R-voice-01 |
-| P1 | Voice command: stop ringing ("stop") | R-voice-03 |
-| P1 | Verbal confirmation after setting | R-voice-02 |
-| P1 | Alarm listing ("What alarms are set?") | Alexa 2.1.5 |
-| P1 | **Default alarm sound plays locally (no network)** | R-offline-06 |
-| P1 | **Alarm volume control via software abstraction** | §2.8 (Alarmlautstärke) + Alexa 2.4.1 + R-audio-04 |
-| P1 | **Single reminder set/delete (local on ESP32)** | UR-04 + Alexa 2.10 |
-| P1 | **Reminder notification text stored locally** | UR-04 + Alexa 2.10.3 |
-
-### Should Have (v2)
-
-| Priority | Requirement | Source |
-|----------|-------------|--------|
-| P2 | Reminder listing ("What reminders do I have?") | Alexa 2.10.4 |
-| P2 | Reminder dismissal | Alexa 2.10.5 |
-| P2 | Reminder deletion | Alexa 2.10.6 |
-| P2 | Music alarm (HA media player integration) | Alexa 2.3.2 |
-| P2 | Named alarms | Alexa 2.1.3 |
-| P2 | Duration-based reminder ("remind me in 20 minutes") | Alexa 2.10.2 |
-
-### Nice to Have (v3+)
-
-| Priority | Requirement | Source |
-|----------|-------------|--------|
-| P3 | Set alarm from HA automations (service call) | R-ha-01 |
-| P3 | Alarm-triggered HA automations | Alexa 2.7.1 + R-ha-04 |
-| P3 | Reminders via intents | R-voice-04 |
-| P3 | Custom ringtones (URL / media source) | R-audio-02 |
-| P3 | Alarm state in HA Lovelace dashboard | R-ha-04 |
-| P4 | Pre-alarm routines (gradual light-up) | Alexa 2.7.2 |
-| P4 | Information briefing (weather, calendar) | Alexa 2.7.4 |
-| P4 | Audio detection (verify speaker output) | R-audio-03 |
+**v3+ (Nice to Have)** — FR-26 through FR-33: HA automation triggers, custom ringtones, dashboard cards, pre-alarm routines, information briefings.
 
 ---
 
-## 6. Non-Functional Requirements
+## 6. References
 
-| # | Requirement | Detail |
-|---|-------------|--------|
-| NFR-1 | **Reliability** | Alarm must fire at the correct time ±1 second. Offline operation is **mandatory** (User Requirement UR-01). |
-| NFR-2 | **Latency** | Alarm sound must start within 2 seconds of trigger time. |
-| NFR-3 | **Power failure** | RTC must maintain time during power loss. ESP32 internal RTC drift: ~±20 ppm → needs regular NTP sync (UR-02). Consider external RTC module (DS3231, ±2 ppm) for production hardware. |
-| NFR-4 | **Privacy** | No voice data sent to external cloud. All NLU runs locally via Home Assistant Voice Assistant. |
-| NFR-5 | **Extensibility** | Architecture must support adding new alarm sounds and trigger actions without firmware updates. |
-| NFR-6 | **Volume** | Alarm sound must be audible from across a bedroom (≥70 dB at 1 meter with typical speaker). |
-| NFR-7 | **Persistence** | Alarm configuration survives reboots and network outages (stored in ESPHome NVS). |
-| NFR-8 | **NTP accuracy** | RTC drift compensated by NTP sync when network is available. Target: ≤1 second drift after 24h offline. |
-| NFR-9 | **HA/ESPHome standards compliance** | All interfaces — ESPHome native API (aioesphomeapi), Home Assistant entity model (AlarmControlPanel, BinarySensor, Number, Text, etc.), service schemas, and configuration structure — must follow ESPHome and Home Assistant conventions exactly. This ensures the alarm clock can later be integrated seamlessly into the ESPHome and HA codebases without custom adapters or upstream resistance. |
+### Home Assistant Community Discussions
 
----
+- [C #559] GH `home-assistant/discussions#559` — Add ability to set alarms on Voice Assistants (soonerfan237, Aug 2025)
+- [C #1089] GH `home-assistant/architecture#1089` — Alarm clock support (architectural proposal)
+- [C #1046] GH `home-assistant/architecture#1046` — Add basic set of intents for time/tasks management (Feb 2024)
+- [C #853987] HA Community #853987 — Alarm clock with voice (Feature Requests, Feb 2025)
+- [C #862776] HA Community #862776 — Alarms and Reminders with Intents (Mar 2025)
+- [C #823282] HA Community #823282 — Set Alarm on Assistant from within automation (Jan 2025)
+- [C #859334] HA Community #859334 — Create alarm on voice assistant from HA (Mar 2025)
+- [C #981426] HA Community #981426 — Any word on getting ability to set alarms & reminders? (Jan 2026)
+- [C #821612] HA Community #821612 — Automating Timers on HA Voice PE for Wake-up Alerts (Jan 2025)
+- [C #847108] HA Community #847108 — SOAS — Full featured alarm clock with HA integration (Feb 2025)
+- [C #886249] HA Community #886249 — DIY ESP32 Alarm Panel with ESPHome (May 2025)
+- [C #910037] HA Community #910037 — Alarm clock integration and Lovelace card (Jul 2025)
 
-## 7. References
+### ESPHome / Related Projects
+
+- [C #467] GH `esphome/home-assistant-voice-pe#467` — Feature proposal: Local Alarm on the device (Oct 2025)
+- [C #1333] GH `esphome/feature-requests#1333` — Support for HA's Input Integrations (Aug 2021)
+- [P1] Skons/SOAS — ESP32 Alarm clock with Home Assistant integration
+- [P2] mmakaay/esphome-alarmclock — ESPHome alarm clock example
+- [P3] 8bitmcu/ESPHome_AlarmClock — ESP32/D1 mini based Alarm Clocks
+- [P4] omaramin-2000/HA-Alarms-and-Reminders — HA integration for Voice Satellites
+- [P5] nirnachmani/HA-Alarm-Clock — Centralized HA alarm clock integration
+- [P6] Blaatschaap84/HA-Assist-Alarms-NL — Voice-controlled alarms (NL)
+- [P7] rjocoleman/ha-qingping-cgd1 — Qingping CGD1 BLE alarm clock integration
 
 ### Alexa / Alarm Clock References
-- [Digital Trends — How to use all Amazon Alexa alarm clock features](https://www.digitaltrends.com/home/alexa-alarm-clock/)
-- [Howtogeek — Amazon Echo Alarms Still Work Without Internet](https://www.howtogeek.com/340198/dont-worry-amazon-echo-alarms-still-work-without-internet/)
-- [Smart Home Explained — Alexa Alarm Clock Commands](https://www.smarthomeexplained.com/alexa-alarm-clock-commands-transforming-how-you-wake-up/)
-- [Smartenlight — Alexa Alarms, the Smarter Alarm Clock](https://smartenlight.com/alexa-alarm/)
-- [Howtogeek / Smarthomeace — How to Set Alarm on Amazon Echo](https://smarthomeace.com/how-to-set-alarm-on-amazon-echo/)
-- [Amazon — Change the Volume of Your Alexa Alarms](https://www.amazon.com/gp/help/customer/display.html?nodeId=GJVZBYD6AKDC84ST)
 
-### Home Assistant Community
-- [GH `home-assistant/discussions#559` — Add ability to set alarms on Voice Assistants](https://github.com/orgs/home-assistant/discussions/559)
-- [GH `home-assistant/architecture#1089` — Alarm clock support](https://github.com/home-assistant/architecture/discussions/1089)
-- [GH `home-assistant/architecture#1046` — Add basic set of intents for time/tasks management](https://github.com/home-assistant/architecture/discussions/1046)
-- [HA Community #853987 — Alarm clock with voice](https://community.home-assistant.io/t/alarm-clock-with-voice/853987)
-- [HA Community #862776 — Alarms and Reminders with Intents](https://community.home-assistant.io/t/alarms-and-reminders-with-intents/862776)
-- [HA Community #823282 — Set Alarm on Assistant from within automation](https://community.home-assistant.io/t/set-alarm-on-assistant-from-within-automation/823282)
-- [HA Community #859334 — Create alarm on voice assistant from Home Assistant](https://community.home-assistant.io/t/create-alarm-on-voice-assistant-preview-from-home-aassistant/859334)
-- [HA Community #981426 — Any word on getting ability to set alarms & reminders?](https://community.home-assistant.io/t/any-word-on-getting-the-ability-to-set-alarms-reminders-using-homeassistant-voice/981426)
-- [HA Community #821612 — Automating Timers on HA Voice PE for Wake-up Alerts](https://community.home-assistant.io/t/automating-timers-on-home-assistant-voice-pe-for-wake-up-alerts/821612)
-- [HA Community #847108 — SOAS — Full featured alarm clock with HA integration](https://community.home-assistant.io/t/soas-full-featured-alarm-clock-with-home-assistant-integration/847108)
-- [HA Community #910037 — Alarm clock integration and Lovelace card](https://community.home-assistant.io/t/alarm-clock-integration-and-lovelace-card/910037)
-
-### ESPHome / Existing Projects
-- [GH `esphome/home-assistant-voice-pe#467` — Feature proposal: Local Alarm on the device](https://github.com/esphome/home-assistant-voice-pe/issues/467)
-- [GH `Skons/SOAS` — ESP32 Alarm clock with Home Assistant integration](https://github.com/Skons/SOAS)
-- [GH `mmakaay/esphome-alarm-clock` — ESPHome alarm clock example](https://github.com/mmakaay/esphome-alarm-clock/blob/main/example.yaml)
-- [GH `8bitmcu/ESPHome_AlarmClock` — ESP32/D1 mini based Alarm Clocks](https://github.com/8bitmcu/ESPHome_AlarmClock)
-- [GH `esphome/feature-requests#1333` — Support for HA's Input Integrations](https://github.com/esphome/feature-requests/issues/1333)
+- [A 2.1–2.10] Amazon Alexa alarm clock feature reference (§2.1)
+- [R-alexa] Digital Trends — How to use all Amazon Alexa alarm clock features
+- [R-offline] Howtogeek — Amazon Echo Alarms Still Work Without Internet
+- [R-volume] Amazon — Change the Volume of Your Alexa Alarms
