@@ -94,14 +94,25 @@ The following features are observed from Amazon's Alexa alarm implementation acr
 
 Morning Routines und Smart Home Automationen sind **Out of Scope** für dieses Projekt. Die Alarm-Funktionalität bleibt auf das reine Wecker-Feature beschränkt (Firing, Snooze, Dismissal, Sound). Smart Home Integration über HA/Automations kann bei Bedarf über Home Assistant-Konfiguration nachgeschaltet werden und gehört nicht in die ESPHome-Firmware.
 
-### 2.8 Physical Hardware Features (Echo / Echo Dot / Echo Spot)
+### 2.8 Out of Scope — Physical Hardware
 
-| # | Feature | Description |
-|---|---------|-------------|
-| 2.8.1 | Clock display | LED or LCD display showing current time (visible at night). Echo Spot has a color touchscreen. |
-| 2.8.2 | Night mode | Dim display at night (auto at 10 PM, configurable). |
-| 2.8.3 | Speaker | Built-in speaker for alarm tones and music. |
-| 2.8.4 | Button controls | Physical button to snooze/stop alarm (varies by device). |
+| # | Feature (from Alexa reference) |
+|---|-------------------------------|
+| 2.8.1 | Clock display (LED / LCD / touchscreen) |
+| 2.8.2 | Night mode (auto-dim display) |
+| 2.8.3 | Speaker hardware (speaker size, amplifier wattage) |
+| 2.8.4 | Button hardware design and layout |
+
+Das Projekt definiert **keine eigene Hardware**. Die Zielgeräte (Home Assistant Voice PE, FutureProofHomes Satellite1) bringen ihre eigene Hardware mit. Das Projekt ist rein als ESPHome-Firmware konzipiert, die auf der bestehenden Hardware dieser Geräte aufsetzt.
+
+In scope sind jedoch die **softwareseitigen Abstraktionen** für Komponenten, die auf allen Zielgeräten vorhanden sind:
+
+| Abstraktion | Detail | Umsetzen |
+|-------------|--------|----------|
+| **Alarmlautstärke** | Eigener Lautstärkeregler für Alarmsounds (getrennt vom Medien-Lautstärkepegel), konfigurierbar über ESPHome `number` entity und Voice Command | ESPHome `volume_component` oder `output` mit `volume` sensor, exposed als `Number` entity |
+| **Tastensteuerung** | Taste auf dem Gerät zum Stoppen/Snoozen des Alarms — Firmware muss den Tastendruck erkennen und den aktuellen Alarm-Zustand ändern (idle → ringing → stopped/snoozed) | ESPHome `binary_sensor` mit `ONCE`/`DOUBLE_CLICK` triggers, State-Maschine im Firmware-Code |
+
+Diese beiden Abstraktionen arbeiten unabhängig von der konkreten Hardware: Die Firmware referenziert standardisierte ESPHome-Entities, die auf den Zielgeräten bereits definiert sind. Device-spezifische Config-Files (Voice PE vs. Satellite1) binden die jeweiligen Hardware-Komponenten an die gemeinsamen Software-Abstraktionen an.
 
 ### 2.9 Timers (Related Feature)
 
@@ -221,14 +232,14 @@ Based on the Alexa reference, community feedback, and user requirements, the fol
 | P0 | Multiple simultaneous alarms | Alexa 2.1.8 |
 | P0 | Alarm sound selection (at least 3 built-in tones) | Alexa 2.3.1 + R-audio-02 |
 | P0 | Alarm volume control | Alexa 2.4.1 + R-audio-04 |
-| P0 | **Physical snooze/stop button** | R-offline-05 + R-audio-01 |
+| P0 | **Physical snooze/stop button** | R-offline-05 + R-audio-01 + §2.8 (Tastensteuerung) |
 | P0 | **Alarm state entity exposed via ESPHome native API** | R-ha-02 + R-ha-05 |
 | P1 | Voice command: set alarms | R-voice-01 |
 | P1 | Voice command: stop ringing ("stop") | R-voice-03 |
 | P1 | Verbal confirmation after setting | R-voice-02 |
 | P1 | Alarm listing ("What alarms are set?") | Alexa 2.1.5 + R-voice-04 |
 | P1 | **Default alarm sound plays locally (no network)** | R-offline-06 |
-| P1 | Clock display on ESP32 | Alexa 2.8.1 |
+| P1 | **Alarm volume control via software abstraction** | §2.8 (Alarmlautstärke) + Alexa 2.4.1 + R-audio-04 |
 
 ### Should Have (v2)
 
@@ -237,7 +248,6 @@ Based on the Alexa reference, community feedback, and user requirements, the fol
 | P2 | Music alarm (HA media player integration) | Alexa 2.3.2 |
 | P2 | Named alarms | Alexa 2.1.3 |
 | P2 | Timer support | Alexa 2.9 + R-voice-04 |
-| P2 | Night mode (auto-dim display) | Alexa 2.8.2 |
 
 ### Nice to Have (v3+)
 
