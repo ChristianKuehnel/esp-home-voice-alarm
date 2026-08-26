@@ -130,6 +130,19 @@ Timer sind **bereits in Home Assistant Voice PE implementiert** und nicht Teil d
 - **NTP-basierte Synchronisation** des Countdowns
 - **Audio-Ausgabe** (Fogbeep, Sprachansagen, Fade-in)
 
+### 2.10 Reminder
+
+| # | Feature | Description | Voice Command Example |
+|---|---------|-------------|----------------------|
+| 2.10.1 | Time-based reminder | Set a reminder to fire at a specific time with a configurable notification text | _"Alexa, remind me to leave now at 3 PM"_ |
+| 2.10.2 | Duration-based reminder | Set a reminder that fires after a duration (e.g., "remind me in 20 minutes") | _"Alexa, remind me in 20 minutes"_ |
+| 2.10.3 | Named notification | The reminder text is spoken aloud when the reminder fires | Device says: "Remember to leave now" |
+| 2.10.4 | Reminder listing | Query all currently set reminders | _"Alexa, what reminders do I have?"_ |
+| 2.10.5 | Reminder dismissal | Stop a ringing reminder | _"Alexa, stop"_ |
+| 2.10.6 | Reminder deletion | Cancel a scheduled reminder | _"Alexa, delete my 3 PM reminder"_ |
+
+Reminders differ from alarms: they fire once (non-repeating) and play back a user-defined notification message instead of a tone. The reminder message is stored locally alongside the alarm time and spoken via TTS when the reminder fires. Like alarms, reminders must work offline using the local RTC and NVS storage.
+
 ---
 
 ## 3. Home Assistant Community Requirements
@@ -167,7 +180,6 @@ The following requirements are derived from ongoing community discussions in the
 | R-voice-01 | Set alarms via voice commands through the Voice Assistant pipeline | The last barrier preventing households from replacing Nest/Alexa with HA Voice PE (Community #853987) |
 | R-voice-02 | Verbal confirmation after setting an alarm | "Okay, your alarm is set for 7 AM" — builds user confidence |
 | R-voice-03 | Stop ringing by voice: "stop" | Must work like Voice PE timers — users expect parity (Discussion #559) |
-| R-voice-04 | Support intents for time management: current time query ("What time is it?"), timers, alarms | Architecture #1046 — essential for Alexa/Google Home parity |
 | R-voice-05 | Support alarms and reminders via intents | Community #862776 — same intent framework as existing timers |
 
 #### 3.2.2 Local-First / Offline Operation (from Discussion #559, Voice PE #467, User Requirement)
@@ -219,6 +231,7 @@ These are specific requirements from the project owner (Christian Kühnel):
 | UR-01 | **RTC-backed alarm — works without network** | The ESPHome device has its own real-time clock (RTC) that keeps time when Wi-Fi is down. Alarms fire at the correct time regardless of network connectivity. |
 | UR-02 | **Automatic RTC synchronization via NTP** | When network is available, the ESP32 syncs its RTC via NTP to ensure long-term accuracy. No manual time setting required. |
 | UR-03 | **Local alarm storage** | Alarm times are stored locally on the ESP32 in non-volatile memory (NVS/Preferences). Alarms survive reboots and network outages. |
+| UR-04 | **Reminders (time-based notifications)** | Users can set a one-time reminder with a configurable notification text (e.g. "drive now"). The device speaks the reminder message aloud when the reminder time arrives. Reminders work offline like alarms (local RTC + NVS storage). |
 
 ---
 
@@ -244,17 +257,22 @@ Based on the Alexa reference, community feedback, and user requirements, the fol
 | P1 | Voice command: set alarms | R-voice-01 |
 | P1 | Voice command: stop ringing ("stop") | R-voice-03 |
 | P1 | Verbal confirmation after setting | R-voice-02 |
-| P1 | Alarm listing ("What alarms are set?") | Alexa 2.1.5 + R-voice-04 |
+| P1 | Alarm listing ("What alarms are set?") | Alexa 2.1.5 |
 | P1 | **Default alarm sound plays locally (no network)** | R-offline-06 |
 | P1 | **Alarm volume control via software abstraction** | §2.8 (Alarmlautstärke) + Alexa 2.4.1 + R-audio-04 |
+| P1 | **Single reminder set/delete (local on ESP32)** | UR-04 + Alexa 2.10 |
+| P1 | **Reminder notification text stored locally** | UR-04 + Alexa 2.10.3 |
 
 ### Should Have (v2)
 
 | Priority | Requirement | Source |
 |----------|-------------|--------|
+| P2 | Reminder listing ("What reminders do I have?") | Alexa 2.10.4 |
+| P2 | Reminder dismissal | Alexa 2.10.5 |
+| P2 | Reminder deletion | Alexa 2.10.6 |
 | P2 | Music alarm (HA media player integration) | Alexa 2.3.2 |
 | P2 | Named alarms | Alexa 2.1.3 |
-| P2 | Timer support | Alexa 2.9 + R-voice-04 |
+| P2 | Duration-based reminder ("remind me in 20 minutes") | Alexa 2.10.2 |
 
 ### Nice to Have (v3+)
 
