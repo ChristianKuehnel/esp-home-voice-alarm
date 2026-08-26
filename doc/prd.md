@@ -114,14 +114,21 @@ In scope sind jedoch die **softwareseitigen Abstraktionen** für Komponenten, di
 
 Diese beiden Abstraktionen arbeiten unabhängig von der konkreten Hardware: Die Firmware referenziert standardisierte ESPHome-Entities, die auf den Zielgeräten bereits definiert sind. Device-spezifische Config-Files (Voice PE vs. Satellite1) binden die jeweiligen Hardware-Komponenten an die gemeinsamen Software-Abstraktionen an.
 
-### 2.9 Timers (Related Feature)
+### 2.9 Out of Scope — Timers
 
-| # | Feature | Description | Voice Command Example |
-|---|---------|-------------|----------------------|
-| 2.9.1 | Count-down timer | Set a timer for a duration (minutes/hours) | _"Alexa, set a timer for 10 minutes"_ |
-| 2.9.2 | Timer listing | Query all active timers | _"Alexa, what timers are running?"_ |
-| 2.9.3 | Timer naming | Name timers for easier management | _"Alexa, set a pasta timer for 10 minutes"_ |
-| 2.9.4 | Timer stop | Cancel a running timer | _"Alexa, stop the pasta timer"_ |
+| # | Feature | Description |
+|---|---------|-------------|
+| 2.9.1 | Count-down timer | Set a timer for a duration (minutes/hours) |
+| 2.9.2 | Timer listing | Query all active timers |
+| 2.9.3 | Timer naming | Name timers for easier management |
+| 2.9.4 | Timer stop | Cancel a running timer |
+
+Timer sind **bereits in Home Assistant Voice PE implementiert** und nicht Teil dieses Projekts. Die Timer-Integration in HA Voice PE dient jedoch als Referenzarchitektur: Wir analysieren die bestehende Timer-Implementierung (State-Maschine, NLU-Intent-Verarbeitung, NTP-Sync, Audio-Ausgabe), um den Alarm auf einer ähnlichen technischen Basis aufzubauen. Besonders relevant sind die Referenz-Implementierung für:
+
+- **State-Maschine** für Timer-Zustände (idle → counting → ringing → stopped/snoozed)
+- **NLU-Intent-Verarbeitung** über den Voice Assistant Pipeline (ESPHome → HA → back)
+- **NTP-basierte Synchronisation** des Countdowns
+- **Audio-Ausgabe** (Fogbeep, Sprachansagen, Fade-in)
 
 ---
 
