@@ -12,6 +12,15 @@ Build a voice-controlled alarm clock running on **ESPHome** + **Home Assistant**
 
 The alarm runs **independently on the ESP32 device**. Once set, it fires at the correct time even if Home Assistant reboots, goes offline, or the Wi-Fi network is down. The ESP32 maintains its own real-time clock (RTC) with automatic NTP synchronization and stores alarm times locally in non-volatile memory.
 
+The firmware must run on standard ESP32-S3-based voice assistant hardware. Specifically, the following target devices are required:
+
+| # | Device | URL | Key Specs |
+|---|--------|-----|-----------|
+| D-1 | **Home Assistant Voice PE** | [home-assistant.io/voice-pe](https://www.home-assistant.io/voice-pe/) | ESP32-S3, XMOS XU316 audio processor, 4-microphone array, LCD display, button, buzzer |
+| D-2 | **FutureProofHomes Satellite1** | [futureproofhomes.net](https://futureproofhomes.net/products/satellite1-smart-speaker) | ESP32-S3, XMOS XU316, 4-mic array, 25W amplifier, headphone jack, LD2450 mmWave sensor, temperature/humidity/luminosity sensors |
+
+Both devices share a common foundation: ESP32-S3 SoC, XMOS voice processor (I2S audio pipeline), and ESPHome-native firmware. This PRD targets a firmware that runs on both platforms, with device-specific configuration files for each.
+
 ---
 
 ## 2. Alexa Alarm Feature Reference
