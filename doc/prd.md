@@ -83,7 +83,7 @@ The following features are observed from Amazon's Alexa alarm implementation acr
 | 2.6.3 | Offline stop | _"Alexa, stop"_ works to silence the alarm offline. |
 | 2.6.4 | Offline limitations | Voice commands like _"snooze"_ or _"cancel"_ may not work offline (requires cloud NLU). |
 
-### 2.7 Smart Home Integration (Morning Routines)
+### 2.7 Out of Scope — Smart Home Integration (Morning Routines)
 
 | # | Feature | Description |
 |---|---------|-------------|
@@ -91,6 +91,8 @@ The following features are observed from Amazon's Alexa alarm implementation acr
 | 2.7.2 | Scheduled routines | Independent of alarm: routines triggered by schedule (e.g., lights gradually brighten 30 min before wake-up). |
 | 2.7.3 | Device actions | Control smart lights, plugs, thermostats, blinds, TV, and any Alexa-compatible device as routine actions. |
 | 2.7.4 | Information delivery | Weather, calendar, news briefings as part of morning routine. |
+
+Morning Routines und Smart Home Automationen sind **Out of Scope** für dieses Projekt. Die Alarm-Funktionalität bleibt auf das reine Wecker-Feature beschränkt (Firing, Snooze, Dismissal, Sound). Smart Home Integration über HA/Automations kann bei Bedarf über Home Assistant-Konfiguration nachgeschaltet werden und gehört nicht in die ESPHome-Firmware.
 
 ### 2.8 Physical Hardware Features (Echo / Echo Dot / Echo Spot)
 
@@ -246,11 +248,6 @@ Based on the Alexa reference, community feedback, and user requirements, the fol
 | P3 | Reminders via intents | R-voice-05 |
 | P3 | Custom ringtones (URL / media source) | R-audio-02 |
 | P3 | Alarm state in HA Lovelace dashboard | R-ha-04 |
-
-### Nice to Have (v3+)
-
-| Priority | Requirement | Source |
-|----------|-------------|--------|
 | P4 | Pre-alarm routines (gradual light-up) | Alexa 2.7.2 |
 | P4 | Information briefing (weather, calendar) | Alexa 2.7.4 |
 | P4 | Audio detection (verify speaker output) | R-audio-03 |
