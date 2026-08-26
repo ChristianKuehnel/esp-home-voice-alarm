@@ -180,7 +180,7 @@ The following requirements are derived from ongoing community discussions in the
 | R-voice-01 | Set alarms via voice commands through the Voice Assistant pipeline | The last barrier preventing households from replacing Nest/Alexa with HA Voice PE (Community #853987) |
 | R-voice-02 | Verbal confirmation after setting an alarm | "Okay, your alarm is set for 7 AM" — builds user confidence |
 | R-voice-03 | Stop ringing by voice: "stop" | Must work like Voice PE timers — users expect parity (Discussion #559) |
-| R-voice-05 | Support alarms and reminders via intents | Community #862776 — same intent framework as existing timers |
+| R-voice-04 | Support alarms and reminders via intents | Community #862776 — same intent framework as existing timers |
 
 #### 3.2.2 Local-First / Offline Operation (from Discussion #559, Voice PE #467, User Requirement)
 
@@ -280,7 +280,7 @@ Based on the Alexa reference, community feedback, and user requirements, the fol
 |----------|-------------|--------|
 | P3 | Set alarm from HA automations (service call) | R-ha-01 |
 | P3 | Alarm-triggered HA automations | Alexa 2.7.1 + R-ha-04 |
-| P3 | Reminders via intents | R-voice-05 |
+| P3 | Reminders via intents | R-voice-04 |
 | P3 | Custom ringtones (URL / media source) | R-audio-02 |
 | P3 | Alarm state in HA Lovelace dashboard | R-ha-04 |
 | P4 | Pre-alarm routines (gradual light-up) | Alexa 2.7.2 |
