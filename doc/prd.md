@@ -203,6 +203,7 @@ The following architectural decisions were made during the design phase and are 
 | **D6** | Timezone via POSIX TZ string (not IANA) | ESPHome uses POSIX TZ for embedded targets (no libc dependency). `CET-1CEST,M3.5.0,M10.5.0` for Germany. DST transitions are calculated at runtime. |
 | **D7** | Generic C++ core + YAML-only hardware config | Firmware logic (NVS, state machine, intents, snooze) in C++. Hardware binding (pins, relays, displays) in ESPHome YAML. Enables new device recipes without C++ changes. |
 | **D8** | NVS global limit of 8 entries (alarms + reminders combined) | Conservative limit for ESP32 flash wear. Configurable via YAML `max_entries: X` in the alarm_clock component. Overflow → voice error message. |
+| **D9** | 24h/12h format detection from POSIX TZ string | European timezones (CET, EET, WET, etc.) → 24-hour format default. `CET-1CEST,M3.5.0,M10.5.0` detects as European → voice input parsed as 24h, TTS outputs "08:00 Uhr" (not "8 AM"). US timezones (PST, EST, CST, MST, etc.) → 12-hour format default with AM/PM fallback prompt. Locale detection runs at component init from the configured POSIX TZ string. |
 
 ---
 
