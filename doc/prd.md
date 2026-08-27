@@ -77,13 +77,15 @@ This project builds on extensively battle-tested ESPHome and Home Assistant infr
 
 **What we implement (not existing):**
 
-| Component | What it does |
-|-----------|-------------|
-| **Alarm State Machine** | Offline-first: alarm ticks independently on ESP32 RTC, not HA-driven. |
-| **NVS Alarm Storage** | Structured storage for alarm/reminder entries (times, recurrence, sound, text). |
-| **Local RTC Timer Tick** | Periodic check (e.g. every second) against local RTC, not HA polling. |
-| **Reminder Text + TTS** | User-defined notification text stored locally, spoken via TTS on fire. |
-| **Custom ESPHome Component** | Unified alarm + reminder entity exposing the state machine via ESPHome API. |
+| Component | Where | What it does |
+|-----------|-------|-------------|
+| **Alarm State Machine** | ESP32 | Offline-first: alarm ticks independently on ESP32 RTC, not HA-driven. |
+| **NVS Alarm Storage** | ESP32 | Structured storage for alarm/reminder entries (times, recurrence, sound, text). |
+| **Local RTC Timer Tick** | ESP32 | Periodic check (e.g. every second) against local RTC, not HA polling. |
+| **Reminder Text + TTS** | ESP32 | User-defined notification text stored locally, spoken via TTS on fire. |
+| **Custom ESPHome Component** | ESP32 | Unified alarm + reminder entity exposing the state machine via ESPHome API. |
+| **Intent/LLM/Parsing Layer** | Home Assistant | HA integration for intent processing (FR-12) and LLM natural language parsing (e.g. "Sag mir in 20 Minuten Bescheid" → SetAlarm). LLM extracts parameters, calls the same intent framework. |
+| **HA Service / MCP Layer** | Home Assistant | `alarm_clock.set_alarm` service call (FR-26) for HA automations, plus MCP tools (`set_alarm`, `cancel_alarm`, `list_alarms`, `get_alarm_state`) for external app integration (Python, Node.js, custom frontends). Same communication path as timers, but exposed as HA entity + MCP tools. |
 
 ---
 
@@ -204,6 +206,7 @@ The following architectural decisions were made during the design phase and are 
 | **D7** | Generic C++ core + YAML-only hardware config | Firmware logic (NVS, state machine, intents, snooze) in C++. Hardware binding (pins, relays, displays) in ESPHome YAML. Enables new device recipes without C++ changes. |
 | **D8** | NVS global limit of 8 entries (alarms + reminders combined) | Conservative limit for ESP32 flash wear. Configurable via YAML `max_entries: X` in the alarm_clock component. Overflow → voice error message. |
 | **D9** | Default 24h format — configurable to 12h (AM/PM) | Default alarm time format is 24-hour (e.g. "08:00", "14:30"). ESPHome YAML config `time_format: 12h` switches to 12-hour with AM/PM. Voice input parsing supports both formats: "8 Uhr" = 08:00 (24h), "8 AM"/"8 in the morning" = 08:00 (12h). If 12h format is used and user says just "8", voice assistant asks "AM oder PM?" for disambiguation. |
+| **D10** | Three input paths — intents, LLM, and MCP | Alarm clock supports three distinct input paths, all converging on the same alarm state machine: (1) **HA Voice Assistant (assist_pipeline)** — Wake Word → transcription → standard intents (`SetAlarm`, `CancelAlarm`, etc.) — primary path for voice PE users. (2) **HA Integrated LLM** — Natural language commands processed by HA's LLM pipeline (e.g. "Sag mir in 20 Minuten Bescheid", "Weck mich morgen um sieben") — LLM extracts alarm parameters and calls the same `SetAlarm`/`CancelAlarm` intents. (3) **HA via MCP (Model Context Protocol)** — External apps/services (Python, Node.js, custom frontends) call the alarm via MCP tools (`set_alarm`, `cancel_alarm`, `list_alarms`, `get_alarm_state`) — same communication path as FR-26 (set alarm from HA automations), but exposed as MCP tools instead of HA service calls. All three paths feed into the same alarm state machine and NVS storage. |
 
 ---
 
