@@ -154,7 +154,7 @@ Fundamental constraints from the project owner:
 | **FR-14** | Verbal confirmation | P1 | Confirms alarm was set | [R-voice-02] |
 | **FR-15** | Alarm listing | P1 | "What alarms are set?" | [A 2.1.5] |
 | **FR-16** | Default alarm sound (offline) | P1 | Built-in tones play without network | [R-offline-06] |
-| **FR-17** | Alarm volume software abstraction | P1 | Standardized entity interface, device-agnostic | [A 2.4.1], [§2.2 Hardware] |
+| **FR-17** | Alarm volume software abstraction | P1 | Standardized entity interface, device-agnostic | [A 2.4.1], [R-audio-04] |
 | **FR-18** | Single reminder set/delete | P1 | One-time reminder on ESP32 | [UR-04], [A 2.10.1] |
 | **FR-19** | Reminder notification text | P1 | TTS speaks user-defined text on fire | [UR-04], [A 2.10.3] |
 | **FR-20** | Reminder listing | P2 | "What reminders do I have?" | [A 2.10.4] |
