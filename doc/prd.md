@@ -203,7 +203,7 @@ The following architectural decisions were made during the design phase and are 
 | **D6** | Timezone via POSIX TZ string (not IANA) | ESPHome uses POSIX TZ for embedded targets (no libc dependency). `CET-1CEST,M3.5.0,M10.5.0` for Germany. DST transitions are calculated at runtime. |
 | **D7** | Generic C++ core + YAML-only hardware config | Firmware logic (NVS, state machine, intents, snooze) in C++. Hardware binding (pins, relays, displays) in ESPHome YAML. Enables new device recipes without C++ changes. |
 | **D8** | NVS global limit of 8 entries (alarms + reminders combined) | Conservative limit for ESP32 flash wear. Configurable via YAML `max_entries: X` in the alarm_clock component. Overflow → voice error message. |
-| **D9** | 24h/12h format detection from POSIX TZ string | European timezones (CET, EET, WET, etc.) → 24-hour format default. `CET-1CEST,M3.5.0,M10.5.0` detects as European → voice input parsed as 24h, TTS outputs "08:00 Uhr" (not "8 AM"). US timezones (PST, EST, CST, MST, etc.) → 12-hour format default with AM/PM fallback prompt. Locale detection runs at component init from the configured POSIX TZ string. |
+| **D9** | Default 24h format — configurable to 12h (AM/PM) | Default alarm time format is 24-hour (e.g. "08:00", "14:30"). ESPHome YAML config `time_format: 12h` switches to 12-hour with AM/PM. Voice input parsing supports both formats: "8 Uhr" = 08:00 (24h), "8 AM"/"8 in the morning" = 08:00 (12h). If 12h format is used and user says just "8", voice assistant asks "AM oder PM?" for disambiguation. |
 
 ---
 
