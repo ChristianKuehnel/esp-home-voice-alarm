@@ -58,25 +58,7 @@ The following features from Amazon's Alexa alarm implementation (Echo, Echo Dot,
 
 **Timers** — Count-down timers with listing, naming, and stop.
 
-### 2.2 Competitive Landscape
-
-A survey of existing ESP32/Home Assistant alarm clock implementations shows **no viable base for fork or reuse**. All alternatives are either significantly more limited in scope or fundamentally architecturally incompatible:
-
-| Project | Approach | Why not usable as base |
-|---------|----------|------------------------|
-| **mmakaay/esphome-alarmclock** | ESPHome GPIO example (relais trigger) | No audio, no snooze, no voice, no RTC backup. Rebuilds 80% of what we need. |
-| **aclight/esphome-alarmclock** | Standalone ESP32-S3 with Elecrow touchscreen | Hardware-bound to 4.3" display panel, no HA integration, no voice. |
-| **Skons/SOAS** | ESP32 + ESPHome + HA intents | No offline RTC, no voice commands, no snooze, no reminders. Alarm fires only if HA sends message. **Architecturally HA-dependent** — our offline-first NFR-01 is impossible. |
-| **HA-Alarms-and-Reminders** | HA custom component → Voice Satellite audio | Alarm state lives in HA, satellite is only a speaker. If HA goes down, no alarms. **Centralized architecture** — opposite of our offline-first principle. |
-| **HA-Alarm-Clock** | HA custom component (builds on HA-Alarms-and-Reminders) | HA-media-player centric, no ESP32 offline, no voice commands. |
-| **HA-Assist-Alarms-NL** | NL-specific voice intents → ESPHome satellites | HA-dependent, language-locked to Dutch, no offline capability. |
-| **qingping-cgd1** | BLE integration for Qingping alarm clock hardware | Proprietary BLE hardware, HA-dependent. |
-
-**Conclusion:** No existing project can be forked or extended as a starting point. Each either lacks core functionality (audio, snooze, voice, reminders) or uses a fundamentally incompatible architecture (HA-centralized vs. our device-native offline-first design).
-
-**Recommendation:** Clean-room implementation that leverages existing ESPHome/HA framework components (see §2.3) rather than forking any specific project.
-
-### 2.3 Technical Foundations — What Exists in ESPHome & HA
+### 2.2 Technical Foundations — What Exists in ESPHome & HA
 
 This project builds on extensively battle-tested ESPHome and Home Assistant infrastructure. The table below shows what we **reuse** versus what we **implement**:
 
@@ -149,7 +131,7 @@ Fundamental constraints from the project owner:
 | R-ha-05 | Current alarm state propagated to HA | idle / ringing / snoozing → HA automation triggers | [C #1089] |
 | R-audio-01 | Stop alarms and reminders by device button | Physical button as primary dismissal method | [C #862776] |
 | R-audio-02 | Allow custom ringtones via media sources or URL | Not limited to built-in tones | [C #862776] |
-| R-audio-03 | Speaker audio detection | Verify alarm is actually audible | SOAS, [C #847108] |
+| R-audio-03 | Speaker audio detection | Verify alarm is actually audible | SOAS |
 | R-audio-04 | Alarm volume independent of media volume | Separate volume control for alarm sounds | [C #559], Alexa 2.4 |
 
 ### 3.3 Functional Requirements
@@ -241,21 +223,13 @@ These features are explicitly excluded from this project.
 - [C #859334] HA Community #859334 — Create alarm on voice assistant from HA (Mar 2025)
 - [C #981426] HA Community #981426 — Any word on getting ability to set alarms & reminders? (Jan 2026)
 - [C #821612] HA Community #821612 — Automating Timers on HA Voice PE for Wake-up Alerts (Jan 2025)
-- [C #847108] HA Community #847108 — SOAS — Full featured alarm clock with HA integration (Feb 2025)
 - [C #886249] HA Community #886249 — DIY ESP32 Alarm Panel with ESPHome (May 2025)
 - [C #910037] HA Community #910037 — Alarm clock integration and Lovelace card (Jul 2025)
 
-### ESPHome / Related Projects
+### ESPHome
 
 - [C #467] GH `esphome/home-assistant-voice-pe#467` — Feature proposal: Local Alarm on the device (Oct 2025)
 - [C #1333] GH `esphome/feature-requests#1333` — Support for HA's Input Integrations (Aug 2021)
-- [P1] Skons/SOAS — ESP32 Alarm clock with Home Assistant integration
-- [P2] mmakaay/esphome-alarmclock — ESPHome alarm clock example
-- [P3] 8bitmcu/ESPHome_AlarmClock — ESP32/D1 mini based Alarm Clocks
-- [P4] omaramin-2000/HA-Alarms-and-Reminders — HA integration for Voice Satellites
-- [P5] nirnachmani/HA-Alarm-Clock — Centralized HA alarm clock integration
-- [P6] Blaatschaap84/HA-Assist-Alarms-NL — Voice-controlled alarms (NL)
-- [P7] rjocoleman/ha-qingping-cgd1 — Qingping CGD1 BLE alarm clock integration
 
 ### Alexa / Alarm Clock References
 
