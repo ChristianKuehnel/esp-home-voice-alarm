@@ -2,7 +2,7 @@
 
 > Reference: Amazon Alexa alarm features + Home Assistant Community Feedback
 >
-> **Last updated:** 2026-08-26
+> **Last updated:** 2026-08-27
 
 ---
 
@@ -108,7 +108,9 @@ Fundamental constraints from the project owner:
 | UR-01 | **RTC-backed alarm — works without network** | The ESPHome device maintains its own RTC. Alarms fire at the correct time regardless of network connectivity. |
 | UR-02 | **Automatic RTC synchronization via NTP** | ESP32 syncs RTC via NTP when network is available. No manual time setting. |
 | UR-03 | **Local alarm storage** | Alarm times and settings stored in non-volatile memory (NVS/Preferences) on the ESP32. Alarms survive reboots and network outages. |
-| UR-04 | **Reminders (time-based notifications)** | Users set a one-time reminder with configurable notification text (e.g. "drive now"). Device speaks the message aloud when the reminder fires. Works offline like alarms. |
+| **UR-04** | **Reminders (time-based notifications)** | Users set a one-time reminder with configurable notification text (e.g. "drive now"). Device speaks the message aloud when the reminder fires. Works offline like alarms. Reminders trigger a short piep + TTS on fire. |
+| **UR-05** | **Alarms always fire — no DND suppression** | Alarm clocks are never suppressed by "Do Not Disturb" or "Sleep Mode". This is a universal UX rule (Alexa, physical alarms). Reminders may optionally be muted by DND. |
+| **UR-06** | **Multiple devices — only the set device rings** | When multiple voice PE / Satellite devices exist, only the device where the alarm was set rings. Cross-device sync is out of scope for v1. |
 
 ### 3.2 Community-Driven Requirements
 
@@ -143,10 +145,10 @@ Fundamental constraints from the project owner:
 | **FR-03** | RTC-backed alarm firing | P0 | Alarm fires independently on ESP32 without network | [UR-01], [NFR-01] |
 | **FR-04** | RTC NTP synchronization | P0 | Automatic sync when network is available | [UR-02], [NFR-08] |
 | **FR-05** | Local alarm storage | P0 | Alarms stored in NVS on ESP32 flash | [UR-03], [NFR-07] |
-| **FR-06** | Snooze | P0 | Configurable duration (default 9 min) | [A 2.2], [R-offline-05] |
+| **FR-06** | Snooze | P0 | Configurable duration (default 9 min). Creates a new NVS entry (Option A: replaces existing alarm). Fires `alarm_snoozed` event for HA integration (e.g., notify HA of snooze state change). | [A 2.2], [R-offline-05] |
 | **FR-07** | Multiple simultaneous alarms | P0 | Independent alarms, no explicit limit | [A 2.1.8] |
-| **FR-08** | Alarm sound selection | P0 | At least 3 built-in tones | [A 2.3.1], [R-audio-02] |
-| **FR-09** | Alarm volume control | P0 | Independent of media volume | [A 2.4.1], [R-audio-04] |
+| **FR-08** | Alarm sound selection | P0 | Standard tone = timer sound (piezo buzzer). Per-alarm sound selection (v2). | [A 2.3.1], [R-audio-02] |
+| **FR-09** | Alarm volume control | P0 | Independent of media volume. Ascending volume (fade-in) is v2. | [A 2.4.1], [R-audio-04] |
 | **FR-10** | Physical snooze/stop button | P0 | Button detection and state-machine response | [R-offline-05], [R-audio-01], [A 2.5.1] |
 | **FR-11** | Alarm state entity via ESPHome API | P0 | State exposed to Home Assistant | [R-ha-02], [R-ha-05] |
 | **FR-12** | Voice command: set alarms | P1 | Through Voice Assistant pipeline | [R-voice-01] |
@@ -163,24 +165,44 @@ Fundamental constraints from the project owner:
 | **FR-23** | Music alarm | P2 | Play media via HA media player | [A 2.3.2] |
 | **FR-24** | Named alarms | P2 | Labels for alarm management | [A 2.1.3] |
 | **FR-25** | Duration-based reminder | P2 | "remind me in 20 minutes" | [A 2.10.2] |
-| **FR-26** | Set alarm from HA automations | P3 | Service call trigger | [R-ha-01] |
-| **FR-27** | Alarm-triggered HA automations | P3 | Alarm dismissed → trigger routines | [A 2.7.1], [R-ha-04] |
-| **FR-28** | Reminders via intents | P3 | Full intent framework support | [R-voice-04] |
+| **FR-26** | Set alarm from HA automations | P2 | Service call trigger (`alarm_clock.set_alarm`). Same communication path as timers (HA Intent → ESPHome Native API). | [R-ha-01] |
+| **FR-27** | Alarm-triggered HA automations | P0 | Alarm fires → HA event `alarm_clock.fire` → triggers automations (lights, coffee, etc.) | [A 2.7.1], [R-ha-04] |
+| **FR-28** | Reminders via intents | P2 | Full intent framework support | [R-voice-04] |
 | **FR-29** | Custom ringtones (URL/media source) | P3 | Not limited to built-in tones | [R-audio-02] |
 | **FR-30** | Alarm state in Lovelace dashboard | P3 | Visual alarm management | [R-ha-04] |
-| **FR-31** | Pre-alarm routines (gradual light-up) | P4 | Fade-in behavior before alarm fires | [A 2.4.2] |
-| **FR-32** | Information briefing | P4 | Weather, calendar at wake time | [A 2.7.4] |
-| **FR-33** | Audio detection | P4 | Verify speaker output is audible | [R-audio-03] |
+| **FR-31** | Per-alarm sound selection | P2 | Different sound per alarm (e.g. sirene Mo-Fr, radio Sa/So) | [A 2.3.1] |
+| **FR-32** | Ascending volume (fade-in) | P2 | Volume starts at 20%, rises to 100% over 5 min | [A 2.4.2] |
+| **FR-33** | Information briefing | P4 | Weather, calendar at wake time | [A 2.7.4] |
+| **FR-34** | Audio detection | P4 | Verify speaker output is audible | [R-audio-03] |
 
 ### 3.4 Out of Scope
 
 These features are explicitly excluded from this project.
 
-**Smart Home Routines** — Alarm-triggered automations (lights, thermostat, news briefings) are out of scope [A 2.7]. Morning routines can be implemented as Home Assistant automations triggered by the alarm entity state. This keeps the firmware focused on core alarm functionality.
+**Smart Home Routines (firmware)** — Alarm-triggered automations (lights, thermostat, news briefings) are implemented as Home Assistant automations triggered by the alarm entity state or `alarm_clock.fire` event. The firmware itself does not define routines [FR-27]. This keeps the firmware focused on core alarm functionality.
 
 **Physical Hardware** — Clock displays, night mode, speaker hardware, button design are out of scope. The project is firmware-only and runs on existing devices. Software abstractions for alarm volume and button control are in scope.
 
 **Timers** — Count-down timers are already implemented in Home Assistant Voice PE and are not part of this project. The Timer implementation serves as our **reference architecture** for state machine design, NLU intent processing, and audio output — see §2.3.
+
+**Display support** — Display output is out of scope for v1. If the community requests display support for alarm management, a text-mode display interface can be added in a future version.
+
+**Cross-device alarm sync** — When multiple voice PE / Satellite devices exist, alarms fire only on the device where they were set. Cross-device alarm propagation via HA is out of scope for v1.
+
+### 3.5 Design Decisions
+
+The following architectural decisions were made during the design phase and are documented for traceability:
+
+| # | Decision | Rationale |
+|---|----------|-----------|
+| **D1** | Standard alarm tone = timer sound (piezo buzzer) | Reuses existing ESPHome timer audio infrastructure. No new audio pipeline in v1. Per-alarm sounds are v2. |
+| **D2** | Snooze creates new NVS entry (Option A) | Simpler state machine. No pause-resume logic. Matches Alexa behavior. Fires `alarm_snoozed` event for HA. |
+| **D3** | Preempt music on alarm fire | Alarm must wake the user — music is immediately stopped. Crossfade (ducking) is v2 if user experience demands it. |
+| **D4** | Only the set device rings | Aligns with Alexa behavior. No cross-device sync complexity in v1. HA can manually trigger other devices via automation if needed. |
+| **D5** | Alarms never suppressed by DND/Sleep Mode | Universal alarm clock UX rule. Reminders may be muted, but alarms always fire. |
+| **D6** | Timezone via POSIX TZ string (not IANA) | ESPHome uses POSIX TZ for embedded targets (no libc dependency). `CET-1CEST,M3.5.0,M10.5.0` for Germany. DST transitions are calculated at runtime. |
+| **D7** | Generic C++ core + YAML-only hardware config | Firmware logic (NVS, state machine, intents, snooze) in C++. Hardware binding (pins, relays, displays) in ESPHome YAML. Enables new device recipes without C++ changes. |
+| **D8** | NVS global limit of 8 entries (alarms + reminders combined) | Conservative limit for ESP32 flash wear. Configurable via YAML `max_entries: X` in the alarm_clock component. Overflow → voice error message. |
 
 ---
 
@@ -195,18 +217,18 @@ These features are explicitly excluded from this project.
 | **NFR-05** | **Extensibility** | Architecture supports adding new alarm sounds and trigger actions without firmware updates. |
 | **NFR-06** | **Audibility** | Alarm sound ≥70 dB at 1 meter with typical speaker hardware. |
 | **NFR-07** | **Persistence** | Alarm configuration survives reboots and network outages (NVS/Preferences) [UR-03]. |
-| **NFR-08** | **NTP accuracy** | RTC drift compensated by NTP sync when network available. ≤1 second drift after 24h offline. |
+| **NFR-08** | **NTP accuracy** | RTC drift compensated by NTP sync when network available. ≤1 second drift after 24h offline. DST transitions are handled at runtime via POSIX TZ strings — no separate DST-sync needed. |
 | **NFR-09** | **HA/ESPHome standards compliance** | All interfaces follow ESPHome native API (aioesphomeapi), HA entity model (BinarySensor, Number, Text, etc.), service schemas, and config structure. Enables seamless upstream integration into ESPHome and HA without custom adapters. |
 
 ---
 
 ## 5. Version Roadmap
 
-**v1 (Must Have)** — FR-01 through FR-19: Core alarm + single reminder with voice commands, offline RTC, snooze, multiple alarms, sound selection, volume control, physical button, HA entity exposure.
+**v1 (Must Have)** — FR-01 through FR-11, FR-12 through FR-14 (voice commands, confirmation, stop), FR-27 (alarm-triggered HA events), FR-26 (set alarm from HA): Core alarm set/delete, repeating alarms, offline RTC firing, NTP sync, NVS persistence, snooze (with `alarm_snoozed` event), multiple alarms, standard alarm tone (timer sound via buzzer), independent volume control, physical button, alarm state entity via ESPHome API, voice commands for set/stop/list, reminder set/delete with piep+TTS, alarm-triggered HA automations, alarm set from HA.
 
-**v2 (Should Have)** — FR-20 through FR-25: Extended reminders, music alarm via HA media player, named alarms.
+**v2 (Should Have)** — FR-20 through FR-25, FR-31, FR-32: Extended reminders (listing, dismissal, deletion, duration-based), music alarm via HA media player, named alarms, per-alarm sound selection, ascending volume (fade-in).
 
-**v3+ (Nice to Have)** — FR-26 through FR-33: HA automation triggers, custom ringtones, dashboard cards, pre-alarm routines, information briefings.
+**v3+ (Nice to Have)** — FR-28 through FR-30, FR-33 through FR-34: Reminders via intents, custom ringtones, Lovelace dashboard cards, information briefings, audio detection.
 
 ---
 
