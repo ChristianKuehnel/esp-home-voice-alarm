@@ -71,7 +71,7 @@ struct Alarm {
 - No partial updates possible: changing one alarm requires rewriting the entire blob
 
 ## Open Questions
-1. **Snooze storage:** Per C1 (ADR-001), snoozed alarms should be stored as a *separate* NVS entry. Should we add `"snooze_blob"` (1 key, similar binary format) or use RAM-only state that auto-deletes on fire? (Tentative: separate NVS entry per PRD C1.)
+1. **Snooze storage:** **Resolved: Snooze removed from v1.** No snooze state in v1 — if alarm rings, user gets up. The `alarm_snoozed` event and Snooze state are removed from the state machine. If snooze is added in a future version, it would use a separate NVS key (`snooze_blob`) per the original design.
 2. **Reminder text:** Resolved. Reminder text is stored in HA (as an `input_text` attribute or `text_sensor` state). ESP32 retrieves it via ESPHome API at trigger time. This follows the established ESPHome pattern (e.g., Voice PE — wake-word on ESP32, TTS payload from HA).
 3. **Migration:** **Resolved: No automatic migration.** If `max_entries` is reduced while more entries exist in NVS, the config write fails with a clear error log. User must manually remove some alarms and reload. This matches the ESPHome pattern — ESPHome itself does not migrate NVS data on layout changes; it erases (`nvs_flash_erase`) or recommends `factory_reset`.
 4. **Struct stability:** **Resolved: No version byte.** Layout changes use a new NVS key name (e.g., `"alarm_blob_v2"`). On boot, if the old key exists, a deprecation warning is logged and the blob is ignored. This follows the ESPHome convention — NVS is a config store, not a database, and migration is handled via factory reset or key renaming.

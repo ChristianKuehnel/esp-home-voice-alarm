@@ -17,30 +17,30 @@ For interruption handling, we implement a **priority-based state machine** where
 
 ### State Machine
 ```
-                    ┌─────────┐
-                    │  IDLE   │
-                    └────┬────┘
-                         │ SetAlarm
-                    ┌────▼────┐
-                    │  SET    │◄───────────┐
-                    └────┬────┘            │ Tick matches, snooze
-                         │ Time matches   │ alarm_snoozed
-                    ┌────▼────┐    ┌──────▼──────┐
-                    │  FIRING │    │  SNOOZED    │
-                    │  (1)    │    └─────────────┘
-                    └────┬────┘
-                         │ Done
-                    ┌────▼────┐
-                    │  IDLE   │
-                    └─────────┘
++---------+        SetAlarm        +---------+
+|  IDLE   |───────────────────────▶|  SET    |
++---------+                        +────┬────┘
+                                       │ Tick matches
+                                       │ Time matches
+                                       ▼
+                           +-------------+   +-------------+
+                           |   FIRING    |   |   DONE      |
+                           | (1)         |   +─────┬───────+
+                           +------+------+         │ Done
+                                 │                │
+                                 ▼                ▼
+                           +---------+    +---------+
+                           │  IDLE   |◀───|  IDLE   |
+                           +---------+    +---------+
+
 ```
 
 **FIRING Subtypes:**
 
 | Subtype | Trigger | Behavior | Snooze/Wake-Word |
 |---------|---------|----------|------------------|
-| `ALARM` | Alarm time matched | Plays Buzzer loop (D1) | `WAKE_WORD_DETECTED` or Stop → `SNOOZED` |
-| `REMINDER` | Reminder time matched | Plays TTS text once (UR-04) | Ignored (TTS ends naturally) |
+| `ALARM` | Alarm time matched | Plays Buzzer loop (D1) | `WAKE_WORD_DETECTED` or Stop → `FIRING → IDLE` |
+| `REMINDER` | Reminder time matched | Plays TTS text once (UR-04) | Ignored (TTS ends naturally, auto-returns to IDLE) |
 
 **Multi-Alarm Firing (Sequential):**
 - When multiple alarms match the same tick (e.g., 08:00, 08:00, 08:00), they fire **sequentially** — one after another.
@@ -50,8 +50,8 @@ For interruption handling, we implement a **priority-based state machine** where
 - The ticker continues checking remaining alarms after the current FIRING completes.
 
 **Priority handling:**
-- Subtype `ALARM` is interruptible: `WAKE_WORD_DETECTED` or button stop → `SNOOZED`
-- Subtype `REMINDER` is not interruptible: TTS plays to completion
+- Subtype `ALARM` is interruptible: `WAKE_WORD_DETECTED` or button stop → `IDLE`
+- Subtype `REMINDER` is not interruptible: TTS plays to completion → `IDLE`
 
 ## Alternatives Considered
 
@@ -88,6 +88,6 @@ Additional resolved decisions:
 
 ## References
 - PRD §2: Goals & Scope
-- PRD D1, D2, D3 (Standard tone, snooze, preemption)
+- PRD D1, D3 (Standard tone, preemption)
 - PRD F2 (State machine with interruption mode)
 - PRD NFR-01 (Reliability: ±1 second tolerance)
