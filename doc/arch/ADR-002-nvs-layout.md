@@ -1,96 +1,85 @@
-# ADR-002: NVS Data Layout & Serialization
+# ADR-002: NVS Data Layout & Storage Strategy
 
 ## Status
 **Proposed**
 
 ## Context
-The alarm clock stores alarms and reminders in the ESP32's NVS (Non-Volatile Storage). The PRD defines a **global limit of 8 entries** (alarms + reminders combined), configurable via YAML `max_entries: X`.
+The alarm clock stores up to 8 alarms in the ESP32's NVS (Non-Volatile Storage). NVS has a finite erase/write cycle limit (~100,000 cycles per block), but the ESPHome `preferences` component provides wear leveling that distributes writes across multiple NVS pages.
 
-This creates several constraints:
-1. **Flash wear:** NVS has a finite erase/write cycle limit. We must minimize unnecessary writes.
-2. **Memory efficiency:** ESP32 has limited RAM. We cannot afford bloated data structures.
-3. **Extensibility:** Future versions may add new fields (custom sounds, fade-in, display config) — the layout must accommodate this without breaking existing entries.
-4. **Atomicity:** NVS writes are atomic per-key, but not across keys. A power loss mid-write must not corrupt existing entries.
+### NVS Endurance Analysis
+- Flash endurance: ~100,000 erase cycles per block
+- NVS wear leveling: distributes writes across multiple physical blocks
+- Our write pattern: only on config changes (SetAlarm / DeleteAlarm / Snooze). No frequent writes.
+- Example: 1 alarm set per day for 1 year = 365 writes. With wear leveling across 10 blocks = ~36 writes/block. **Negligible wear.**
+- NVS partition size (ESPHome auto-generated): ~12-45 KB usable. We need < 1 KB for all alarm data.
 
 ## Decision
-We use a **hybrid approach**: a compact C++ struct for each entry, serialized to JSON for HA-level transport, but stored in NVS as individual key-value pairs.
+We use ESPHome's built-in `preferences` component (shared NVS partition) rather than creating a custom NVS partition. This keeps the ESPHome YAML config simple and avoids manual partition table management in v1.
+
+**Layout:** A single binary blob stored in one ESPHome preference key.
 
 ### NVS Key Schema
 ```
-alarm_clock_config (global metadata)
-alarm_clock_entry_0  (alarm/reminder entry 0)
-alarm_clock_entry_1  (alarm/reminder entry 1)
-...
-alarm_clock_entry_7  (alarm/reminder entry 7)
+"alarm_blob"  →  {uint8_t count; Alarm[0..MAX_ALARMS-1]}
 ```
 
-### Entry Struct (C++)
+### Alarm Struct (C++ — 4 bytes each)
 ```cpp
-struct AlarmEntry {
-    uint8_t id;              // 0-7 (index into NVS)
-    bool active;             // Is this alarm/reminder enabled?
-    uint8_t type;            // 0 = alarm, 1 = reminder
-    uint8_t hour;            // 0-23
-    uint8_t minute;          // 0-59
-    uint8_t repeat_mask;     // Bitmask: bit 0 = Sunday, bit 6 = Saturday
-    uint8_t sound_id;        // 0 = default (buzzer), 1-3 = reserved for v2 sounds
-    uint16_t snooze_minutes; // Snooze duration in minutes
-    char reminder_text[64];  // Max 64 bytes for reminder text
-    char tag[8];             // "alarm" or "reminder" for quick lookup
+struct Alarm {
+    uint8_t hour;       // 0-23
+    uint8_t minute;     // 0-59
+    uint8_t days_mask;  // Bitmask: bit 0=Mo ... bit 6=Su; 0 = one-shot
+    bool enabled;       // Is this alarm active?
 };
 ```
 
-### JSON Payload (HA ↔ ESP32 transport)
-```json
-{
-    "id": 0,
-    "active": true,
-    "type": "alarm",
-    "hour": 8,
-    "minute": 0,
-    "repeat_mask": 0b01111110,
-    "sound_id": 0,
-    "snooze_minutes": 5,
-    "reminder_text": ""
-}
+### Header + Blob Layout
+```
+[ count: uint8_t ][ Alarm[0] (4B) ][ Alarm[1] (4B) ] ... [ Alarm[7] (4B) ]
+  (1 byte)           4 bytes              4 bytes                    4 bytes
 ```
 
+**Total: 33 bytes** (1 byte header + 8 × 4 bytes = 33 bytes).
+**~1 KB NVS space allocated** (default ESPHome NVS partition).
+**~0.04% of NVS used.**
+
 ### Write Strategy
-- **Read-modify-write per entry:** When updating entry N, read entry N from NVS, modify in RAM, write back to NVS key `alarm_clock_entry_N`. Never rewrite the entire namespace.
-- **No entry is ever deleted:** Setting `active = false` is preferred over erasing the key. This avoids fragmentation and preserves the sequential key pattern.
-- **Config changes (max_entries):** Written once to `alarm_clock_config`. If this value conflicts with existing entries (e.g., new max_entries is 4 but entries 5-7 exist), the config write fails with an error.
+- **Full blob rewrite on change:** When adding/deleting/updating an alarm, the entire blob is written to the single key `"alarm_blob"`. This means 1 NVS write per alarm operation, not N writes per N keys.
+- **Wear impact:** 1 alarm set/delete = 1 NVS write per key. With wear leveling, negligible.
+- **Read on boot:** ESPHome loads preferences into RAM at startup. We deserialize the blob once into our C++ alarm manager.
 
 ## Alternatives Considered
 
 | Alternative | Pros | Cons |
 |-------------|------|------|
-| Single JSON blob (one NVS key) | Simple read/write, easy to extend | Must rewrite entire NVS key on every update (more flash wear), harder to make atomic |
-| Flat key-value pairs (`alarm_0_hour`, `alarm_0_active`, ...) | Max granularity, no serialization | Many NVS keys, harder to manage, no native struct alignment |
-| C++ struct → binary in NVS | Fastest I/O, smallest footprint | Endianness issues, no human readability, harder to debug |
-| **Hybrid (struct + JSON transport)** | ✅ Best of both worlds | Slightly more code, but worth it |
+| **Single binary blob (chosen)** | ✅ 1 NVS write per operation, minimal code, fast I/O | Harder to debug, endianness concerns |
+| Single JSON blob (one NVS key) | Human-readable, easy to extend | Needs `ArduinoJson` lib (Flash-heavy), slow serialization/deserialization, same single-write behavior |
+| Flat key-value pairs | Max granularity | Many NVS keys (~24 per alarm), harder to manage, fragmented writes |
+| C++ struct → binary in NVS (raw) | Fastest I/O | Endianness, no alignment guarantee, hard to debug |
 
 ## Consequences
 
 ### Positive
-- Minimal flash wear: only the changed entry is rewritten
-- Backward compatible: adding new struct fields (v2/fade-in, etc.) is safe as long as existing fields are at fixed offsets
-- JSON payload for HA transport is human-readable and easily parsed by LLMs (per D10)
-- Entry deletion via `active = false` prevents NVS fragmentation
+- Minimal NVS usage: 33 bytes vs ~45 KB available
+- Minimal flash wear: 1 NVS write per alarm operation (not N writes per field)
+- Simple ESPHome YAML config: just `preferences:` component, no custom partition
+- Fast boot: single NVS read + 33 bytes deserialized into RAM
 
 ### Negative
-- 8 entries × ~100 bytes struct ≈ 800 bytes + overhead ≈ ~2-3 KB NVS space (still well within ESP32's ~45 KB usable NVS)
-- JSON serialization/deserialization on the ESP32 adds ~5 KB code size (esp-json/tinyjson)
-- `active = false` entries accumulate until manual cleanup — need a periodic compaction mechanism (v2+)
+- Harder to debug: NVS content is binary, not human-readable
+- Must ensure struct layout is stable across firmware updates (no changing field order or types)
+- No partial updates possible: changing one alarm requires rewriting the entire blob
 
 ## Open Questions
-1. **Entry count:** 8 is the default, but should we support a "soft limit" (e.g., 16 entries) where overflow entries are queued in a FIFO and auto-pruned (oldest first) when max_entries is reached? This would be v2.
-2. **Snooze storage:** Should snoozed alarms be stored as a *separate* entry (new NVS key `alarm_snooze_0`) as defined in C1, or as a temporary state in RAM that auto-deletes when it fires? (Answer per PRD: separate NVS entry.)
-3. **Migration:** What happens if the YAML `max_entries` is changed from 8 to 4 while 6 entries exist? Reject the config change, or auto-truncate oldest entries?
-4. **Reminder text encoding:** 64 bytes for `reminder_text` — is that enough? Voice-generated TTS text can be verbose.
+1. **Snooze storage:** Per C1 (ADR-001), snoozed alarms should be stored as a *separate* NVS entry. Should we add `"snooze_blob"` (1 key, similar binary format) or use RAM-only state that auto-deletes on fire? (Tentative: separate NVS entry per PRD C1.)
+2. **Reminder text:** Resolved. Reminder text is stored in HA (as an `input_text` attribute or `text_sensor` state). ESP32 retrieves it via ESPHome API at trigger time. This follows the established ESPHome pattern (e.g., Voice PE — wake-word on ESP32, TTS payload from HA).
+3. **Migration:** **Resolved: No automatic migration.** If `max_entries` is reduced while more entries exist in NVS, the config write fails with a clear error log. User must manually remove some alarms and reload. This matches the ESPHome pattern — ESPHome itself does not migrate NVS data on layout changes; it erases (`nvs_flash_erase`) or recommends `factory_reset`.
+4. **Struct stability:** **Resolved: No version byte.** Layout changes use a new NVS key name (e.g., `"alarm_blob_v2"`). On boot, if the old key exists, a deprecation warning is logged and the blob is ignored. This follows the ESPHome convention — NVS is a config store, not a database, and migration is handled via factory reset or key renaming.
 
 ## References
-- PRD D8 (NVS global limit, configurable via YAML)
-- PRD C1 (Snooze = new NVS entry)
+- PRD D8 (NVS global limit of 8, configurable via YAML)
+- PRD C1 (Snooze = separate NVS entry)
 - PRD F4 (Generic C++ core)
 - PRD NFR-02 (Data persistence across reboots)
-- esp-idf NVS documentation: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/nvs_flash.html
+- ESP-IDF NVS documentation: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/storage/nvs_flash.html
+- ESPHome `preferences` component: https://esphome.io/components/esp32/preferences.html
