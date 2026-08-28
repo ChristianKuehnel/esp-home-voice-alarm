@@ -11,7 +11,7 @@ The ESPHome framework is event-loop-based. It does not use threading or traditio
 Additionally, the device must handle **interruption mode**: when an alarm is ringing, a wake-word detection (e.g., "Stop alarm") must be able to interrupt the ring state immediately.
 
 ## Decision
-We use `esphome::interval` for periodic tick checking (every 1-5 seconds) rather than hardware timer interrupts. This aligns with ESPHome's event-loop model and avoids the complexity of raw timer interrupts which can conflict with WiFi/BLE stacks.
+We use `esphome::interval` for periodic tick checking at **1 second** (following ESPHome's timer pattern). This aligns with ESPHome's event-loop model and avoids the complexity of raw timer interrupts which can conflict with WiFi/BLE stacks.
 
 For interruption handling, we implement a **priority-based state machine** where wake-word events have higher priority than the ringing state.
 
@@ -26,21 +26,32 @@ For interruption handling, we implement a **priority-based state machine** where
                     └────┬────┘            │ Tick matches, snooze
                          │ Time matches   │ alarm_snoozed
                     ┌────▼────┐    ┌──────▼──────┐
-                    │  RINGING│    │  SNOOZED    │
-                    └────┬────┘    └─────────────┘
-                         │ Alarm fired
-                    ┌────▼────┐
-                    │  FIRING │
+                    │  FIRING │    │  SNOOZED    │
+                    │  (1)    │    └─────────────┘
                     └────┬────┘
                          │ Done
                     ┌────▼────┐
-                    │  DONE   │
+                    │  IDLE   │
                     └─────────┘
 ```
 
+**FIRING Subtypes:**
+
+| Subtype | Trigger | Behavior | Snooze/Wake-Word |
+|---------|---------|----------|------------------|
+| `ALARM` | Alarm time matched | Plays Buzzer loop (D1) | `WAKE_WORD_DETECTED` or Stop → `SNOOZED` |
+| `REMINDER` | Reminder time matched | Plays TTS text once (UR-04) | Ignored (TTS ends naturally) |
+
+**Multi-Alarm Firing (Sequential):**
+- When multiple alarms match the same tick (e.g., 08:00, 08:00, 08:00), they fire **sequentially** — one after another.
+- First alarm starts firing, completes (or is snoozed/stopped), then the next alarm in the queue begins.
+- Alarm order within same-time: oldest-first (FIFO, based on NVS entry ID).
+- Priority: `ALARM` subtype fires before `REMINDER` (alarms wake the user first).
+- The ticker continues checking remaining alarms after the current FIRING completes.
+
 **Priority handling:**
-- In `RINGING` state: any `WAKE_WORD_DETECTED` → `SNOOZED` (via `alarm_clock.cancel_alarm` or `alarm_clock.snooze`)
-- `RINGING` is preemptable, `FIRING` is not (once the TTS plays, it completes)
+- Subtype `ALARM` is interruptible: `WAKE_WORD_DETECTED` or button stop → `SNOOZED`
+- Subtype `REMINDER` is not interruptible: TTS plays to completion
 
 ## Alternatives Considered
 
@@ -63,9 +74,17 @@ For interruption handling, we implement a **priority-based state machine** where
 - State machine transitions must be idempotent (same intent during `RINGING` should not cause double-fire)
 
 ## Open Questions
-1. **Poll interval:** 1 second? 5 seconds? 1 second is safest but burns more cycles. 5 seconds means worst-case alarm delay is 4.999s (acceptable for an alarm clock).
-2. **RTC wake from deep sleep:** Should the alarm clock support waking from deep sleep to fire an alarm? This would require RTC timer + deep sleep transitions. Not in v1 scope, but should the state machine account for it?
-3. **Race condition during TTS:** If the device is playing TTS for a reminder and an alarm fires, does the alarm preempt the TTS? (Answer: yes, per D3/C2 — alarm preemption is required.)
+*All resolved: 1s poll, immediate fire on NTP-shift, FIRING+subtype, sequential multi-alarm, idempotent ignore.*
+
+These are now resolved:
+1. **Poll interval:** ✅ 1 second (per ESPHome timer pattern)
+2. **RTC wake from deep sleep:** ✅ Not in v1 scope, state machine doesn't need to account for it
+3. **Race condition during TTS:** ✅ Per D3/C2 — alarm preemption required (ALARM subtype fires before REMINDER subtype)
+
+Additional resolved decisions:
+- **NTP-Shift-Verhalten:** Alarm fires immediately if it was in SET and time shifted past the alarm time
+- **Multi-Alarm Firing:** Sequential (oldest-first FIFO), ALARM before REMINDER
+- **Idempotency:** Duplicate `SetAlarm` during FIRING is ignored
 
 ## References
 - PRD §2: Goals & Scope
