@@ -1,4 +1,4 @@
-# ADR-003: Intent Payload & API Schema
+# ADR-003: Intent Payload & MCP Integration
 
 ## Status
 **Proposed**
@@ -8,20 +8,51 @@ The alarm clock exposes **three input paths** (PRD D10), all converging on the s
 
 1. **HA Voice Assistant** — Wake Word → transcription → intent (`SetAlarm`, `CancelAlarm`, etc.)
 2. **HA Integrated LLM** — Natural language → parameter extraction → same intent
-3. **HA via MCP** — External apps call MCP tools → same underlying ESPHome service
+3. **External Agent via MCP** — Agent calls MCP tools → HA service → ESP32
 
 The PRD defines `alarm_clock.set_alarm` (HA service call, FR-26) and `alarm_clock.fire` (ESPHome event, FR-27) as the core communication mechanism.
 
-We need to define:
-- The **JSON schema** for intent payloads exchanged between HA and the ESP32
-- The **ESPHome service call** signature
-- The **ESPHome event** payload structure
-- How the three input paths map to a single, canonical internal representation
+**Critical constraint:** An external agent (e.g., LLM agent, automation system) must be able to create and delete alarms via the **HA MCP Server**. This requires:
+- A proper **ESPHome Integration** in HA Core that exposes alarm services
+- **MCP Tools** that wrap these services for the agent to call
 
 ## Decision
 
-### Canonical Intent Payload
-All three input paths must produce the same canonical JSON structure before calling the ESPHome service. This is the single source of truth for alarm/reminder parameters.
+### 1. Architecture: HA Core Integration + MCP Server
+
+```
+External Agent
+       │
+       │ MCP Protocol (HTTP/WebSocket)
+       ▼
+┌─────────────────────┐
+│ HA MCP Server        │  ← Exposes tools to agent
+│  (built-in HA        │     Tools: set_alarm, cancel_alarm, list_alarms
+│   add-on)            │
+└──────────┬───────────┘
+           │ HA Service Call
+           ▼
+┌─────────────────────┐
+| HA Core             |  ← alarm_clock custom component (HACS)
+│                     │     Services: alarm_clock.set, alarm_clock.cancel,
+│                     │          alarm_clock.list
+└──────────┬───────────┘
+           │ ESPHome API (WebSocket)
+           ▼
+┌─────────────────────┐
+│ ESP32               │  ← alarm_clock component
+│                     │     NVS storage, RTC tick, TTS playback
+└─────────────────────┘
+```
+
+**Key decisions:**
+- The ESP32 communicates with HA via **ESPHome API** (WebSocket, already built into ESPHome).
+- HA exposes alarm operations as **native services** (`alarm_clock.set`, `alarm_clock.cancel`, `alarm_clock.list`).
+- The **MCP Server** wraps these services as MCP tools for the agent.
+- No custom protocol needed — uses the existing ESPHome API + HA service layer.
+
+### 2. Canonical Intent Payload
+All three input paths produce the same JSON structure:
 
 ```json
 {
@@ -31,8 +62,6 @@ All three input paths must produce the same canonical JSON structure before call
     "hour": 8,
     "minute": 0,
     "repeat_mask": 62,
-    "sound_id": 0,
-    "snooze_minutes": 5,
     "reminder_text": ""
 }
 ```
@@ -42,70 +71,76 @@ All three input paths must produce the same canonical JSON structure before call
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `id` | int | No | Auto-assigned (next free) | Entry index (0-7). If omitted, HA picks the first free slot. |
-| `type` | string | Yes | `"alarm"` | `"alarm"` or `"reminder"` |
+| `type` | string | Yes | `alarm` | `alarm` or `reminder` |
 | `active` | bool | Yes | `true` | Whether the entry is enabled |
 | `hour` | int | Yes | — | 0-23 |
 | `minute` | int | Yes | — | 0-59 |
-| `repeat_mask` | int | No | `0b00000000` | Bitmask: bit 0 = Sunday, ..., bit 6 = Saturday. `62` = Mon-Sat. `126` = every day (Sun-Sat). |
-| `sound_id` | int | No | `0` | `0` = default buzzer. `1-3` reserved for v2 custom sounds. |
-| `snooze_minutes` | int | No | `5` | Duration for snooze (C1). |
-| `reminder_text` | string | No | `""` | Text for TTS playback on reminder fire. |
+| `repeat_mask` | int | No | `0` | Bitmask: bit 0=Sun, bit 1=Mon, ..., bit 6=Sat. `0` = one-shot. `62` = Mon-Fri. `127` = every day. |
+| `reminder_text` | string | No | `""` | TTS text for reminders. Stored in HA (not sent to ESP32). |
 
-### ESPHome Service Call (FR-26)
+**Note:** No `snooze_minutes` or `sound_id` — snooze is removed from v1 (ADR-001). `reminder_text` is stored in HA, not in the NVS blob on ESP32.
+
+### 3. HA Services
+
 ```yaml
-# alarm_clock.set_alarm
-service: alarm_clock.set_alarm
+# alarm_clock.set
+service: alarm_clock.set
 data:
-  payload:
-    type: alarm
-    hour: 8
-    minute: 0
-    repeat_mask: 62
+  type: alarm
+  hour: 8
+  minute: 0
+  repeat_mask: 62
+  # Optional: id, reminder_text (stored in HA only)
+
+# alarm_clock.cancel
+service: alarm_clock.cancel
+data:
+  # Optional: id
+  # If id is provided → cancel specific alarm
+  # If id is omitted → cancel all alarms
+id: 0  # optional
+
+# alarm_clock.list
+service: alarm_clock.list
+# Returns: list of all alarms (from ESP32 NVS)
+
+# alarm_clock.trigger_tts (optional v2)
+service: alarm_clock.trigger_tts
+data:
+  id: 0
+  text: "Meeting reminder"
+# Triggers TTS playback on ESP32 (used for reminders)
 ```
 
-### ESPHome Event (FR-27)
-```yaml
-# alarm_clock.fire
-trigger:
-  - platform: event
-    event_type: alarm_clock.fire
-    event_data:
-      id: 0
-      type: alarm
-      hour: 8
-      minute: 0
+### 4. MCP Tools (for External Agent)
+
+The MCP Server exposes the following tools to the agent:
+
+| MCP Tool | Description | Parameters |
+|----------|-------------|------------|
+| `set_alarm` | Create/update an alarm | `type`, `hour`, `minute`, `repeat_mask` (optional: `id`, `reminder_text`) |
+| `cancel_alarm` | Cancel an alarm | `id` (optional, omit = cancel all) |
+| `list_alarms` | List all alarms | none |
+
+**Example agent call:**
+```
+Agent: "Set alarm for 7 AM weekdays"
+→ MCP call: `set_alarm(type="alarm", hour=7, minute=0, repeat_mask=62)`
+→ HA service: `alarm_clock.set(hour=7, minute=0, repeat_mask=62)`
+→ ESPHome API: write to ESP32 NVS
+→ ESP32: alarm stored, ready to fire
 ```
 
-### Input Path Mapping
+### 5. Input Path Mapping
 
 | Input Path | How it produces canonical payload | Example |
 |------------|----------------------------------|---------|
 | **Voice Assistant** | Intent defined in HA `intent.json` → HA framework extracts slots → passes to service call | "Weck mich um 8 Uhr werktags" → `SetAlarm(hour=8, minute=0, repeat_mask=62)` |
 | **LLM** | LLM receives intent definition + parameter schema → extracts natural language into slots → passes to service call | "Sag mir in 20 Minuten Bescheid" → LLM calculates `hour=now+20min` → `reminder` type → service call |
-| **MCP** | MCP server (HA add-on or external) exposes `set_alarm`, `cancel_alarm`, `list_alarms`, `get_alarm_state` as native tools → external app constructs JSON → calls HA service | Python script: `client.set_alarm(type="alarm", hour=6, minute=30)` → constructs JSON → calls service |
+| **MCP Agent** | Agent calls MCP tool → MCP Server calls HA service → ESPHome API to ESP32 | Agent: "Set alarm for 7 AM weekdays" → `set_alarm(type="alarm", hour=7, minute=0, repeat_mask=62)` |
 
-## Alternatives Considered
+### 6. `repeat_mask` Bitmask Mapping
 
-| Alternative | Pros | Cons |
-|-------------|------|------|
-| **Canonical JSON (above)** | ✅ Single schema, LLM-friendly, type-safe, extensible | More bytes on wire (acceptable) |
-| ESPHome native service parameters (typed fields) | No JSON serialization, faster | No JSON for LLM parsing, no MCP tool compatibility, fragile type changes |
-| Free-form string (e.g., `"8 Uhr werktags"`) | Simplest for LLM, no schema | ESP32 must parse it, no type safety, no automation compatibility |
-| YAML config file (HA writes to ESPHome via file transfer) | Human-editable | Heavyweight, not suitable for frequent updates |
-
-## Consequences
-
-### Positive
-- **Single schema** means all three input paths (voice, LLM, MCP) use the same structure — no duplication
-- **JSON is LLM-friendly:** The LLM pipeline (D10 path #2) can naturally produce this structure from natural language
-- **Type-safe:** ESPHome YAML schema can validate the payload before sending to ESP32
-- **Extensible:** Adding `fade_in`, `custom_sound`, `display_text` (v2/v3) is just adding new fields — old entries keep their defaults
-
-### Negative
-- JSON serialization on ESP32 adds ~5 KB code size (tinyjson)
-- `repeat_mask` uses a bitmask — the LLM or intent system must understand how to convert "werktags"/"every day" into the right integer
-
-### repeat_mask mapping:
 ```
 Bit 0 = Sunday   → value 1
 Bit 1 = Monday   → value 2
@@ -121,11 +156,32 @@ Bit 6 = Saturday → value 64
 "Samstag"             = 64
 ```
 
+## Alternatives Considered
+
+| Alternative | Pros | Cons |
+|-------------|------|------|
+| **HA Integration + MCP Server (chosen)** | ✅ Agent can call alarm via MCP, clean separation of concerns, uses existing ESPHome API | Requires custom HA integration (mild effort) |
+| MCP Server directly calls ESPHome API | No HA integration needed | Breaks HA abstraction layer, agent bypasses HA UI/state |
+| Native ESPHome service parameters | No JSON serialization, faster | Not MCP-compatible, fragile type changes |
+| Free-form string (e.g., `"8 Uhr werktags"`) | Simplest for LLM | ESP32 must parse, no type safety |
+
+## Consequences
+
+### Positive
+- **Agent-first design:** External agents (LLM, automation) can directly manage alarms via MCP — no manual HA UI interaction needed.
+- **Single schema:** All three input paths use the same structure — voice, LLM, MCP all produce identical JSON.
+- **Extensible:** Adding fields (fade-in, custom TTS prompts) is backward-compatible (new fields have defaults).
+- **HA-native:** Uses ESPHome API and HA service layer — no custom networking or protocol.
+
+### Negative
+- JSON serialization on ESP32 adds ~5 KB code size (tinyjson).
+- `repeat_mask` bitmask requires the LLM/MCP agent to understand how to convert "werktags"/"every day" into the right integer (can be handled via MCP tool documentation).
+
 ## Open Questions
-1. **MCP server location:** Should the MCP tools be implemented as a **HA add-on**, or as a **HA integration** that exposes the service calls as MCP tools? An add-on is more portable (works with any HA deployment), but an integration is more tightly coupled (can directly call ESPHome services without HA API overhead).
-2. **Intent definitions:** Should the `SetAlarm`/`CancelAlarm` intents be defined as custom HA intents, or should we leverage the existing HA timer intents if any? (Answer: custom intents — no existing timer intents.)
-3. **Cancel semantics:** Should `cancel_alarm` take an `id` (specific alarm) or `all` (cancel all)? The MCP `cancel_alarm` tool should support both via an optional `target` parameter.
-4. **Timezone handling in payloads:** The canonical payload uses absolute `hour`/`minute` in local time (as configured in D6). Should we also store the timezone in the payload, or is it always inherited from the device config? (Answer: inherited from device config — the payload just stores the time.)
+1. **ESPHome integration vs custom component:** ~~Should the ESP32 be exposed as a full **ESPHome Integration** in HA Core (provides `alarm_clock` entity, entity registry, HA UI), or as a **Custom Component** (lighter, no entity registry, direct service calls)?~~ **Resolved:** Custom Component via HACS. Lighter weight, no HA integration boilerplate, no config flow, direct service calls. ESP32 is added as a standard ESPHome device in HA; alarm services are exposed as a custom HA component (`alarm_clock`), not as an ESPHome platform integration.
+2. **Reminder text storage:** **Resolved:** Entity Attribute + HA Storage persistence. The `alarm_clock` entity stores reminder text in an attribute (e.g., `attributes: {alarms: [...]}`). The HA Custom Component persists this to `storage/alarm_clock/` on every change and reloads it on startup, ensuring data survives HA reboots.
+3. **`cancel_alarm` semantics:** **Resolved:** Option A (Cancel all). `alarm_clock.cancel()` without `id` removes ALL alarms. `alarm_clock.cancel(id=0)` removes only entry 0.
+4. **ESP32 entity state:** **Resolved:** Option A (Both). Expose `text_sensor.alarm_clock_state` for detailed mode (`IDLE`, `SET`, `FIRING`, `FIRING_ALARM`, etc.) and `binary_sensor.alarm_clock_firing` for simple on/off automation logic.
 
 ## References
 - PRD D10 (Three input paths)
@@ -133,3 +189,5 @@ Bit 6 = Saturday → value 64
 - PRD FR-27 (Alarm-triggered automations)
 - PRD D9 (24h/12h format)
 - PRD F2 (Repeat days, bitmask)
+- HA MCP Server documentation: https://home-assistant.io/integrations/mcp/
+- ESPHome API documentation: https://esphome.io/guides/connections.html
