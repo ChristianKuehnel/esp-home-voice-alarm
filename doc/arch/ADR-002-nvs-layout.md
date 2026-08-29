@@ -23,23 +23,25 @@ We use ESPHome's built-in `preferences` component (shared NVS partition) rather 
 "alarm_blob"  →  {uint8_t count; Alarm[0..MAX_ALARMS-1]}
 ```
 
-### Alarm Struct (C++ — 4 bytes each)
+### Alarm Struct (C++ — 8 bytes each)
 ```cpp
 struct Alarm {
-    uint8_t hour;       // 0-23
-    uint8_t minute;     // 0-59
-    uint8_t days_mask;  // Bitmask: bit 0=Mo ... bit 6=Su; 0 = one-shot
-    bool enabled;       // Is this alarm active?
-};
+    uint8_t hour;           // 0-23
+    uint8_t minute;         // 0-59
+    uint8_t days_mask;      // Bitmask: bit 0=Mo ... bit 6=Su; 0 = one-shot
+    uint8_t enabled;        // Is this alarm active? (bool → byte for alignment)
+    uint16_t sound_id;      // 0 = default timer sound (pre-allocated for v1/v2 sound selection)
+    uint16_t reserved;      // Reserved for future fields (no layout migration needed)
+}; // total: 8 bytes per entry
 ```
 
 ### Header + Blob Layout
 ```
-[ count: uint8_t ][ Alarm[0] (4B) ][ Alarm[1] (4B) ] ... [ Alarm[7] (4B) ]
-  (1 byte)           4 bytes              4 bytes                    4 bytes
+[ count: uint8_t ][ Alarm[0] (8B) ][ Alarm[1] (8B) ] ... [ Alarm[7] (8B) ]
+  (1 byte)           8 bytes               8 bytes                     8 bytes
 ```
 
-**Total: 33 bytes** (1 byte header + 8 × 4 bytes = 33 bytes).
+**Total: 65 bytes** (1 byte header + 8 × 8 bytes = 65 bytes).
 **~1 KB NVS space allocated** (default ESPHome NVS partition).
 **~0.04% of NVS used.**
 
@@ -47,13 +49,14 @@ struct Alarm {
 - **Full blob rewrite on change:** When adding/deleting/updating an alarm, the entire blob is written to the single key `"alarm_blob"`. This means 1 NVS write per alarm operation, not N writes per N keys.
 - **Wear impact:** 1 alarm set/delete = 1 NVS write per key. With wear leveling, negligible.
 - **Read on boot:** ESPHome loads preferences into RAM at startup. We deserialize the blob once into our C++ alarm manager.
+- **Forward compatibility:** The `reserved` field ensures that adding new fields (e.g., snooze, fade-in duration) in future versions does NOT require NVS migration or factory reset. The struct grows in-place as long as the total size stays within 8–16 bytes per entry.
 
 ## Alternatives Considered
 
-| Alternative | Pros | Cons |
+|| Alternative | Pros | Cons |
 |-------------|------|------|
-| **Single binary blob (chosen)** | ✅ 1 NVS write per operation, minimal code, fast I/O | Harder to debug, endianness concerns |
-| Single JSON blob (one NVS key) | Human-readable, easy to extend | Needs `ArduinoJson` lib (Flash-heavy), slow serialization/deserialization, same single-write behavior |
+| **Single binary blob (chosen)** | ✅ 1 NVS write per operation, minimal code, fast I/O, forward-compatible via `reserved` field | Harder to debug, endianness concerns |
+| **Single JSON blob (one NVS key)** | Human-readable, easy to extend | Needs `ArduinoJson` lib (Flash-heavy), slow serialization/deserialization, same single-write behavior, larger struct size due to string pointers |
 | Flat key-value pairs | Max granularity | Many NVS keys (~24 per alarm), harder to manage, fragmented writes |
 | C++ struct → binary in NVS (raw) | Fastest I/O | Endianness, no alignment guarantee, hard to debug |
 
@@ -74,7 +77,7 @@ struct Alarm {
 1. **Snooze storage:** **Resolved: Snooze removed from v1.** No snooze state in v1 — if alarm rings, user gets up. The `alarm_snoozed` event and Snooze state are removed from the state machine. If snooze is added in a future version, it would use a separate NVS key (`snooze_blob`) per the original design.
 2. **Reminder text:** Resolved. Reminder text is stored in HA (as an `input_text` attribute or `text_sensor` state). ESP32 retrieves it via ESPHome API at trigger time. This follows the established ESPHome pattern (e.g., Voice PE — wake-word on ESP32, TTS payload from HA).
 3. **Migration:** **Resolved: No automatic migration.** If `max_entries` is reduced while more entries exist in NVS, the config write fails with a clear error log. User must manually remove some alarms and reload. This matches the ESPHome pattern — ESPHome itself does not migrate NVS data on layout changes; it erases (`nvs_flash_erase`) or recommends `factory_reset`.
-4. **Struct stability:** **Resolved: No version byte.** Layout changes use a new NVS key name (e.g., `"alarm_blob_v2"`). On boot, if the old key exists, a deprecation warning is logged and the blob is ignored. This follows the ESPHome convention — NVS is a config store, not a database, and migration is handled via factory reset or key renaming.
+4. **Struct stability & forward compatibility:** **Resolved: `reserved` field absorbs future growth.** Adding new fields (snooze, fade-in duration, per-alarm volume) in future versions does NOT require a new NVS key or factory reset. The `reserved` field provides in-place expansion up to 16 bytes per entry. If even that is exhausted, a new NVS key (`"alarm_blob_v2"`) is used as before. The `sound_id` field is pre-allocated for v2 sound selection. |
 
 ## References
 - PRD D8 (NVS global limit of 8, configurable via YAML)

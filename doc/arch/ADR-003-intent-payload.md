@@ -18,37 +18,71 @@ The PRD defines `alarm_clock.set_alarm` (HA service call, FR-26) and `alarm_cloc
 
 ## Decision
 
-### 1. Architecture: HA Core Integration + MCP Server
+### 1. Architecture: ESPHome Component + HA Core Platform
+
+The alarm clock follows the **ESPHome native integration pattern** used by all other ESPHome devices:
 
 ```
-External Agent
+External Agent (optional v2)
        │
        │ MCP Protocol (HTTP/WebSocket)
        ▼
 ┌─────────────────────┐
-│ HA MCP Server        │  ← Exposes tools to agent
-│  (built-in HA        │     Tools: set_alarm, cancel_alarm, list_alarms
+│ HA MCP Server        │  ← Optional add-on (v2+)
+│  (built-in HA        │     Not required for v1
 │   add-on)            │
 └──────────┬───────────┘
            │ HA Service Call
            ▼
-┌─────────────────────┐
-| HA Core             |  ← alarm_clock custom component (HACS)
-│                     │     Services: alarm_clock.set, alarm_clock.cancel,
-│                     │          alarm_clock.list
-└──────────┬───────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ Home Assistant Core                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Platform: alarm_clock (core or config_entries, auto-detected│   │
+│  │ from ESPHome Device Registry. No HACS component needed.    │   │
+│  │ - Reads entities from ESP32 device                         │   │
+│  │ - Provides HA Services: alarm_clock.set, cancel, list      │   │
+│  │ - Manages reminder_text storage (HA Storage API)           │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└──────────┬──────────────────────────────────────────────────────────┘
            │ ESPHome API (WebSocket)
            ▼
-┌─────────────────────┐
-│ ESP32               │  ← alarm_clock component
-│                     │     NVS storage, RTC tick, TTS playback
-└─────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ ESPHome Component (C++) on ESP32                                    │
+│  ┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐    │
+│  │ binary_sensor    │ │ text_sensor      │ │ number           │    │
+│  │ alarm_firing     │ │ alarm_state      │ │ alarm_volume     │    │
+│  │ (ON=alarm firing)│ │ (IDLE/FIRING/..) │ │ (0.0-1.0)        │    │
+│  └──────────────────┘ └──────────────────┘ └──────────────────┘    │
+│                                                                     │
+│  NVS Storage + RTC Tick + Alarm State Machine                     │
+│  Custom Action: alarm.stop (called from voice_assistant.on_intent) │
+│                                                                     │
+│  Intent Handling:                                                   │
+│  - voice_assistant.on_intent: Stop intent → alarm.stop action     │
+│  - ESPHome API: HA services write to alarm state machine          │
+│  - alarm_clock.fire event: HA automation trigger                  │
+│                                                                     │
+│  Reminder Text Retrieval:                                         │
+│  - ESPHome API call to HA at trigger time (fetches reminder_text) │
+│  - No reminder_text stored in ESP32 NVS                           │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │ Custom Action: alarm.stop                                  │   │
+│  │ - Defined in C++ component via ESPHome action framework    │   │
+│  │ - Stops alarm ringing, resets state to IDLE                │   │
+│  │ - Called from: voice_assistant.on_intent Stop              │   │
+│  │                  ESPHome binary_sensor.on_press (D2)       │   │
+│  │                  HA service alarm_clock.cancel             │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key decisions:**
 - The ESP32 communicates with HA via **ESPHome API** (WebSocket, already built into ESPHome).
-- HA exposes alarm operations as **native services** (`alarm_clock.set`, `alarm_clock.cancel`, `alarm_clock.list`).
-- The **MCP Server** wraps these services as MCP tools for the agent.
+- All alarm entities (BinarySensor, TextSensor, Number) are defined **in the ESPHome C++ component**, following the standard ESPHome device pattern. HA's Core Platform auto-discovers them from the Device Registry.
+- HA provides **native services** (`alarm_clock.set`, `alarm_clock.cancel`, `alarm_clock.list`) that write to the alarm state machine on the ESP32.
+- The **MCP Server** wraps these services as MCP tools for external agents — but is **OPTIONAL for v1**. Core HA services are sufficient.
+- Reminder text is stored in HA (Entity Attribute + HA Storage persistence) and fetched by ESP32 via ESPHome API at trigger time.
+- A **Custom Action** `alarm.stop` is registered in the ESPHome C++ component for use from `voice_assistant.on_intent` and button press handlers.
 - No custom protocol needed — uses the existing ESPHome API + HA service layer.
 
 ### 2. Canonical Intent Payload
@@ -178,10 +212,16 @@ Bit 6 = Saturday → value 64
 - `repeat_mask` bitmask requires the LLM/MCP agent to understand how to convert "werktags"/"every day" into the right integer (can be handled via MCP tool documentation).
 
 ## Open Questions
-1. **ESPHome integration vs custom component:** ~~Should the ESP32 be exposed as a full **ESPHome Integration** in HA Core (provides `alarm_clock` entity, entity registry, HA UI), or as a **Custom Component** (lighter, no entity registry, direct service calls)?~~ **Resolved:** Custom Component via HACS. Lighter weight, no HA integration boilerplate, no config flow, direct service calls. ESP32 is added as a standard ESPHome device in HA; alarm services are exposed as a custom HA component (`alarm_clock`), not as an ESPHome platform integration.
-2. **Reminder text storage:** **Resolved:** Entity Attribute + HA Storage persistence. The `alarm_clock` entity stores reminder text in an attribute (e.g., `attributes: {alarms: [...]}`). The HA Custom Component persists this to `storage/alarm_clock/` on every change and reloads it on startup, ensuring data survives HA reboots.
+
+1. **ESPHome integration vs custom component:** **Resolved: ESPHome C++ component (Core pattern).** Entities (BinarySensor, TextSensor, Number) are defined in the ESPHome C++ component on the ESP32. HA's Core Platform auto-discovers them from the ESPHome Device Registry — no HACS component needed. HA provides services (`alarm_clock.set`, `cancel`, `list`) that communicate with the ESP32 via ESPHome API. This is the standard pattern for all ESPHome devices (e.g., `voice_assistant`, `media_player`).
+
+2. **Reminder text storage:** **Resolved:** Entity Attribute + HA Storage persistence. The HA Platform stores reminder text in an entity attribute and persists to `storage/` on every change. ESP32 fetches reminder text via ESPHome API at trigger time.
+
 3. **`cancel_alarm` semantics:** **Resolved:** Option A (Cancel all). `alarm_clock.cancel()` without `id` removes ALL alarms. `alarm_clock.cancel(id=0)` removes only entry 0.
-4. **ESP32 entity state:** **Resolved:** Option A (Both). Expose `text_sensor.alarm_clock_state` for detailed mode (`IDLE`, `SET`, `FIRING`, `FIRING_ALARM`, etc.) and `binary_sensor.alarm_clock_firing` for simple on/off automation logic.
+
+4. **ESP32 entity state:** **Resolved:** Both. `text_sensor.alarm_clock_state` for detailed mode (`IDLE`, `SET`, `FIRING`, `FIRING_ALARM`, etc.) and `binary_sensor.alarm_clock_firing` for simple on/off automation logic. Both exposed as ESPHome entities in the C++ component.
+
+5. **Custom Action `alarm.stop`:** **Resolved:** Implemented in ESPHome C++ component via `ESPHomeAction` framework. Registered as `alarm.stop` and callable from `voice_assistant.on_intent`, `binary_sensor.on_press`, and HA service calls. The action resets the alarm state machine to `IDLE` and stops audio output.
 
 ## References
 - PRD D10 (Three input paths)
