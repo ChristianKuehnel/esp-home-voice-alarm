@@ -1,0 +1,37 @@
+# ESPHome External Component CI
+# Follows ESPHome's official recommendations:
+# - Uses esphome/build-action for compilation testing
+# - Tests against stable, beta, and dev versions
+# - Daily cron builds against dev branch
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 7 * * *'  # Every day at 07:00 UTC against dev
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile-test:
+    name: Compile (ESPHome ${{ matrix.esphome-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        esphome-version:
+          - stable
+          - beta
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build ESPHome test config
+        uses: esphome/build-action@v7
+        with:
+          version: ${{ matrix.esphome-version }}
+          yaml-file: test/voice-pe.yaml

@@ -1,0 +1,31 @@
+# Voice Alarm Clock — CI compilation test config
+# Device: Home Assistant Voice PE (ESP32-S3)
+# Tests the External Component via the official 'components' path pattern
+
+external_components:
+  - source: components
+    components: [voice_alarm]
+
+# Device config
+esphome:
+  name: voice-alarm-test
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+    version: recommended
+
+voice_alarm:
+  speaker_pin: GPIO25
+  button_pin: GPIO1
+
+logger:
+
+api:
+
+ota:
+  - platform: esphome
+    password: "test"

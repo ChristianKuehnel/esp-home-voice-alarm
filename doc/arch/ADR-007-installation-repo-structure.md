@@ -43,14 +43,14 @@ esp-home-voice-alarm/
 │       ├── ADR-005-alarm-volume.md
 │       ├── ADR-006-voice-commands.md
 │       └── ADR-007-installation-repo-structure.md
-├── esphome/
-│   └── external_components/
-│       └── voice_alarm/
-│           ├── voice_alarm.h          # Haupt-Header (ESPHome-namespace)
-│           ├── voice_alarm.cpp        # Implementierung
-│           ├── alarm_state.h          # State-Header
-│           ├── alarm_state.cpp        # State-Logik
-│           └── alarm_config.h         # Config/GPIO-Definitionen
+├── components/                          # ESPHome External Components (ESPHome-Standard)
+│   └── voice_alarm/
+│       ├── __init__.py                  # Validierung + Code-Generierung
+│       ├── voice_alarm.h                # Haupt-Header (ESPHome-namespace)
+│       ├── voice_alarm.cpp              # Implementierung
+│       ├── alarm_state.h                # State-Header
+│       ├── alarm_state.cpp              # State-Logik
+│       └── alarm_config.h               # Config/GPIO-Definitionen
 └── custom_components/
     └── voice_alarm/
         ├── __init__.py                # Integration setup, services
