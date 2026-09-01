@@ -1,0 +1,34 @@
+name: Build Release ZIP
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create voice_alarm.zip
+        run: |
+          # Zip only the custom_components/voice_alarm/ directory
+          cd custom_components
+          zip -r ../voice_alarm.zip voice_alarm/
+
+      - name: Upload Release Asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice_alarm.zip
+          path: voice_alarm.zip
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: voice_alarm.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

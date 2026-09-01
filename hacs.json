@@ -1,0 +1,6 @@
+{
+  "name": "Voice Alarm Clock",
+  "render_readme": true,
+  "homeassistant": "2024.1.0",
+  "filename": "voice_alarm.zip"
+}

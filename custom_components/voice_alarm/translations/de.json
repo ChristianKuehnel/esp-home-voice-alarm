@@ -1,0 +1,36 @@
+{
+  "title": {
+    "en": "Voice Alarm Clock",
+    "de": "Sprach-Wecker"
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "Voice Alarm Clock einrichten",
+        "data": {
+          "device_id": "ESPHome Device ID",
+          "volume_default": "Standard Lautstärke"
+        },
+        "data_description": {
+          "device_id": "Die Device-ID des ESPHome-Geräts",
+          "volume_default": "Standard-Lautstärke (0.1-1.0)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "user": {
+        "title": "Voice Alarm Clock konfigurieren",
+        "data": {
+          "volume_default": "Standard Lautstärke"
+        }
+      }
+    }
+  },
+  "error": {
+    "cannot_connect": "Verbindung zum Gerät fehlgeschlagen",
+    "invalid_auth": "Authentifizierung fehlgeschlagen",
+    "unknown": "Unerwarteter Fehler"
+  }
+}
