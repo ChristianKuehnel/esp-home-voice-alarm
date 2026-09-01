@@ -45,10 +45,9 @@ esp-home-voice-alarm/
 │       └── ADR-007-installation-repo-structure.md
 ├── esphome/
 │   └── external_components/
-│       └── alarm_clock/
-│           ├── __init__.py            # Python-Stubs für ESPHome-IDE (optional)
-│           ├── alarm_clock.h          # Haupt-Header (ESPHome-namespace)
-│           ├── alarm_clock.cpp        # Implementierung
+│       └── voice_alarm/
+│           ├── voice_alarm.h          # Haupt-Header (ESPHome-namespace)
+│           ├── voice_alarm.cpp        # Implementierung
 │           ├── alarm_state.h          # State-Header
 │           ├── alarm_state.cpp        # State-Logik
 │           └── alarm_config.h         # Config/GPIO-Definitionen
@@ -82,7 +81,7 @@ external_components:
       url: https://github.com/ChristianKuehnel/esp-home-voice-alarm
       ref: main
     files:
-      - esphome/external_components/alarm_clock/alarm_clock.h
+      - esphome/external_components/voice_alarm/voice_alarm.h
 ```
 
 ESPHome erkennt automatisch den `esphome/`-Pfad innerhalb des Repos, wenn die Komponente im `components/`- oder `esphome/components/`-Verzeichnis liegt. Alternativ: explizite `files:`-Angabe.
@@ -93,8 +92,8 @@ ESPHome erkennt automatisch den `esphome/`-Pfad innerhalb des Repos, wenn die Ko
 
 ### HACS Installation (zip_file)
 
-**Entscheidung:** HACS installiert eine **`alarm_clock.zip`** als GitHub Release-Asset.
-nicht der gesamte Repo-Root, sondern nur der `custom_components/`-Teil wird als ZIP ausgeliefert.
+**Entscheidung:** HACS installiert eine **`voice_alarm.zip`** als GitHub Release-Asset.
+Nicht der gesamte Repo-Root, sondern nur der `custom_components/`-Teil wird als ZIP ausgeliefert.
 Das filtert ESPHome-Code aus HACS heraus und sorgt für saubere Trennung.
 
 **Installationsweg (für Endnutzer):**
@@ -110,7 +109,7 @@ Das filtert ESPHome-Code aus HACS heraus und sorgt für saubere Trennung.
   "name": "Alarm Clock",
   "render_readme": true,
   "homeassistant": "2024.1.0",
-  "filename": "alarm_clock.zip"
+  "filename": "voice_alarm.zip"
 }
 ```
 
@@ -165,11 +164,12 @@ Das filtert ESPHome-Code aus HACS heraus und sorgt für saubere Trennung.
 
 ## Open Questions
 
-*All resolved: zip_file, `voice_alarm` domain, semantic tagging.*
+*All resolved: zip_file, `voice_alarm` domain & filename, semantic tagging, CI pipeline.*
 
-1. **HACS `zip_file`:** ✅ GitHub Release-Asset `alarm_clock.zip` enthält nur `custom_components/`. CI zippt den HA-Teil separat. Kein ESPHome-Spam im HACS-UI.
+1. **HACS `zip_file`:** ✅ GitHub Release-Asset `voice_alarm.zip` enthält nur `custom_components/voice_alarm/`. CI zippt den HA-Teil via GitHub Actions bei Tags.
 2. **Domain-Name:** ✅ `voice_alarm` — verhindert Kollisionen mit anderen "alarm_clock"-Integrations im HACS-Ökosystem. Vollständiger Name: "Voice Alarm Clock".
 3. **Tagging-Policy:** ✅ `main`-Branch + semantische Tags (`v0.1.0`, `v0.2.0`) für stabile Releases. Nutzer können `ref: v0.1.0` oder `ref: main` in ESPHome YAML verwenden.
+4. **CI Pipeline:** ✅ GitHub Actions Workflow (.github/workflows/release.yml) zippt `custom_components/voice_alarm/` in `voice_alarm.zip` und veröffentlicht es als Release-Asset.
 
 ---
 
@@ -179,3 +179,7 @@ Das filtert ESPHome-Code aus HACS heraus und sorgt für saubere Trennung.
 - [ESPBlog: Custom Components Removed](https://developers.esphome.io/blog/2025/02/19/about-the-removal-of-support-for-custom-components/)
 - [HACS Custom Repositories](https://hacs.xyz/docs/comparing/custom)
 - [Home Assistant Custom Component Docs](https://developers.home-assistant.io/docs/create_first_integration)
+
+## Follow-up
+
+- [#1](https://github.com/ChristianKuehnel/esp-home-voice-alarm/issues/1) — **User Installation Guide schreiben** (docs/installation.md mit Beispiel-YAML, GPIO-Mappings, Troubleshooting)
