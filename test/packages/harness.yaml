@@ -1,0 +1,59 @@
+# Test adapters only: no real speaker, microphone, or hardware button.
+esphome:
+  name: ${node_name}
+  includes:
+    - fixtures/scheduler_checks.h
+    - fixtures/runtime_checks.h
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          setenv("TZ", "UTC0", 1);
+          tzset();
+          if (const char *failure = scheduler_checks()) {
+            ESP_LOGE("test", "VOICE_ALARM_SMOKE_FAIL: %s", failure);
+            return;
+          }
+          if (!voice_alarm_test::setup_preferences()) {
+            ESP_LOGE("test", "VOICE_ALARM_SMOKE_FAIL: preferences save");
+            return;
+          }
+          ESP_LOGI("test", "VOICE_ALARM_SMOKE_PASS probe=%u", voice_alarm_test::probe);
+
+external_components:
+  - source: ../components
+    components: [voice_alarm]
+
+voice_alarm:
+  id: alarm_clock
+  # No time_id: only the test client advances the clock.
+
+logger:
+  level: DEBUG
+
+binary_sensor:
+  - platform: template
+    id: firing
+    name: Test Ringing
+    lambda: |-
+      return id(alarm_clock).state_machine().get_state() == esphome::voice_alarm::AlarmState::FIRING;
+
+sensor:
+  - platform: template
+    name: Test Persistence Probe
+    id: probe_sensor
+    accuracy_decimals: 0
+    update_interval: 100ms
+    lambda: return voice_alarm_test::probe;
+
+text_sensor:
+  - platform: template
+    name: Test Alarm State
+    update_interval: 100ms
+    lambda: |-
+      switch (id(alarm_clock).state_machine().get_state()) {
+        case esphome::voice_alarm::AlarmState::IDLE: return {"idle"};
+        case esphome::voice_alarm::AlarmState::SET: return {"armed"};
+        case esphome::voice_alarm::AlarmState::FIRING: return {"ringing"};
+        default: return {"done"};
+      }

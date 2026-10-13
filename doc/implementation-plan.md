@@ -2,18 +2,20 @@
 
 **Date:** 2026-10-13
 **Baseline:** [ADR-009](arch/ADR-009-v1-implementation-baseline.md)
-**Status:** Ready to start implementation; all milestones below remain pending.
+**Status:** Test infrastructure is implemented; the v1 feature milestones below remain pending.
 
 The owner has a Voice PE and working HA Assist available. First establish a working build and communication path, then prove an alarm can be set, persisted, fired, and dismissed offline. Add German and English voice commands before calling v1 complete.
 
 ## 1. Establish a reproducible baseline
 
+The [test setup](../test/README.md) now pins ESPHome/Python test dependencies, compiles the portable scheduler and ESPHome wrapper, exercises host native API actions, and boots compiled ESP32-S3 firmware in `esp-emu`. Host file preferences and emulated NVS survive restarts using a test probe. This does not yet prove persistent alarm records, the production HA integration, or Voice PE audio/wake-word bindings.
+
 - Pin compatible ESPHome, HA/Python development dependencies, and an upstream Voice PE package revision. Record tested versions and clean-environment commands. The existing HA `2024.1.0` metadata is not verified compatibility evidence.
-- Repair ESPHome imports/schema/code generation, lifecycle methods, header dependencies, logging, and initialization. Instantiate/connect the scheduler. Replace raw speaker/button GPIO assumptions with component references and supported YAML hooks.
+- ESPHome imports/schema/code generation, lifecycle methods, header dependencies, and initialization are repaired; the scheduler is connected with an optional time source. Raw speaker/button GPIO assumptions are removed. Production audio and input component bindings remain to be implemented.
 - Repair HA config-flow `self` usage, manifest registration, entity lifecycle, and options handling. Validate the existing ESPHome device binding and prevent duplicates. Use firmware-backed volume rather than a separate HA value.
-- Fix the external-component path in `test/voice-pe.yaml` to resolve from the YAML directory (`../components`). Provide a minimal compilation fixture and a real Voice PE package recipe with network, clock, audio, and wake-word bindings. Disable disconnection-triggered reboot timers in the latter. Keep real credentials out of fixtures.
+- Minimal host/S3 compilation fixtures and corrected external-component paths are in place; `test/voice-pe.yaml` is only a compatibility alias for the S3 fixture. Provide a real Voice PE package recipe with network, clock, audio, and wake-word bindings. Disable disconnection-triggered reboot timers in the latter. Keep real credentials out of fixtures.
 - Prove a targeted HA action, correlated device acknowledgment, and readable state snapshot. Record the exact wire mapping and schema version; reject incompatible firmware.
-- Add Python checks and firmware builds to CI. The current scheduled workflow tests stable/beta despite its dev comment: add an actual scheduled dev job and a pinned required baseline.
+- CI now runs native scheduler checks, host API/restart checks, and S3 compilation/emulation against a pinned baseline, plus scheduled stable/beta/dev builds. Add HA integration checks as its implementation is repaired.
 
 **Exit:** Clean-environment validation/compilation and HA setup/unload tests pass; the request/result round trip works against the selected versions. Document commands reproducing CI.
 

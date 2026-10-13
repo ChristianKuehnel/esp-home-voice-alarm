@@ -1,49 +1,25 @@
 #pragma once
 
-#include "esphome.h"
-#include "alarm_config.h"
-
-#ifdef USE_ESP32
+#include "alarm_state.h"
+#include "esphome/core/component.h"
+#include "esphome/components/time/real_time_clock.h"
 
 namespace esphome {
 namespace voice_alarm {
 
-// Forward declarations for state machine
-class AlarmStateMachine;
-class VoiceAlarmClock;
-
-class VoiceAlarmClock : public Component {
+// Hardware callbacks live in the device recipe. Both targets share this core.
+class VoiceAlarmClock : public PollingComponent {
  public:
   void setup() override;
-  void loop() override;
+  void update() override;
   void dump_config() override;
-  float get_priority() override { return 140.0f; }
-
-  // GPIO pin configuration (overridable per device)
-  void set_gpio_config(uint8_t speaker_pin, uint8_t button_pin, uint8_t rtc_irq_pin = 0) {
-    this->speaker_pin_ = speaker_pin;
-    this->button_pin_ = button_pin;
-    this->rtc_irq_pin_ = rtc_irq_pin;
-  }
-
-  // State machine access
-  void set_state_machine(AlarmStateMachine *state_machine) {
-    this->state_machine_ = state_machine;
-  }
-
-  // RTC interface
-  bool has_rtc_ = false;
-  uint32_t last_sync_epoch_ = 0;
+  void set_time_source(time::RealTimeClock *clock) { clock_ = clock; }
+  AlarmStateMachine &state_machine() { return state_machine_; }
 
  protected:
-  uint8_t speaker_pin_;
-  uint8_t button_pin_;
-  uint8_t rtc_irq_pin_;
-
-  AlarmStateMachine *state_machine_ = nullptr;
+  time::RealTimeClock *clock_{nullptr};
+  AlarmStateMachine state_machine_;
 };
 
 }  // namespace voice_alarm
 }  // namespace esphome
-
-#endif

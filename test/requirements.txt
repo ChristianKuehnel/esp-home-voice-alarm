@@ -1,0 +1,4 @@
+# Keep CI and local builds on the same framework baseline. Python 3.13.
+esphome==2026.9.1
+aioesphomeapi==46.3.0
+pytest==8.4.2

@@ -1,31 +1,85 @@
-# ESPHome External Component CI
-# Follows ESPHome's official recommendations:
-# - Uses esphome/build-action for compilation testing
-# - Tests against stable, beta, and dev versions
-# - Daily cron builds against dev branch
-
 name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   schedule:
-    - cron: '0 7 * * *'  # Every day at 07:00 UTC against dev
+    - cron: '0 7 * * *'
+
+permissions:
+  contents: read
+
+env:
+  PLATFORMIO_CORE_DIR: ${{ github.workspace }}/.tools/platformio
+  XDG_CACHE_HOME: ${{ github.workspace }}/.tools/cache
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  compile-test:
-    name: Compile (ESPHome ${{ matrix.esphome-version }})
+  native:
+    name: Portable C++ scheduler
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 test/run_native.py
+
+  host:
+    name: ESPHome host API and persistence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: test/requirements.txt
+      - run: pip install -r test/requirements.txt
+      - run: esphome compile test/host.yaml
+      - run: python -m pytest -q test/test_host.py
+
+  emulator:
+    name: ESP32-S3 firmware and NVS in esp-emu
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: test/requirements.txt
+      - run: pip install -r test/requirements.txt
+      - run: esphome compile test/esp32-s3.yaml
+      - run: python test/install_emulator.py
+      - run: python test/run_emulator.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: esp32-s3-test-results
+          path: |
+            build/emulator-logs/
+            test/.esphome/build/voice-alarm-s3-test/build/firmware.factory.bin
+            test/.esphome/build/voice-alarm-s3-test/build/firmware.elf
+          retention-days: 14
+
+  compatibility:
+    name: Scheduled compile (ESPHome ${{ matrix.esphome-version }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
         esphome-version:
           - stable
           - beta
+          - dev
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,4 +88,4 @@ jobs:
         uses: esphome/build-action@v7
         with:
           version: ${{ matrix.esphome-version }}
-          yaml-file: test/voice-pe.yaml
+          yaml-file: test/esp32-s3.yaml

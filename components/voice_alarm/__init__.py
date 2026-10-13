@@ -1,57 +1,26 @@
-# Voice Alarm Clock — ESPHome External Component
-
-# Validates YAML configuration and registers the VoiceAlarmClock component
-# with the ESPHome code generation system.
+"""Portable scheduler wrapper; device-specific I/O lives in YAML."""
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import pins
-from esphome.components import esp32  # for pin validation
+from esphome.components import time
+from esphome.const import CONF_ID, CONF_TIME_ID
 
-from esphome.const import (
-    CONF_ID,
-    CONF_PIN,
-    CONF_SPEAKER_PIN,
-    CONF_BUTTON_PIN,
-    CONF_RTC_IRQ_PIN,
-    DEVICE_CLASS_ALARM,
-    ENTITY_CATEGORY_CONFIG,
-)
+AUTO_LOAD = ["time"]
 
-# Auto-generate namespace
 voice_alarm_ns = cg.esphome_ns.namespace("voice_alarm")
-VoiceAlarmClock = voice_alarm_ns.class_(
-    "VoiceAlarmClock", cg.Component
-)
+VoiceAlarmClock = voice_alarm_ns.class_("VoiceAlarmClock", cg.PollingComponent)
 
-# Validation schema — all pins optional, ESPHome validates GPIO numbers
-VOICE_ALARM_SCHEMA = cv.Schema(
+CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(VoiceAlarmClock),
-        cv.Optional(CONF_SPEAKER_PIN): pins.GPIO_OUTPUT_PIN_SCHEMA,
-        cv.Optional(CONF_BUTTON_PIN): pins.GPIO_INPUT_PULLUP_PIN_SCHEMA,
-        cv.Optional(CONF_RTC_IRQ_PIN): pins.GPIO_INPUT_PIN_SCHEMA,
+        cv.Optional(CONF_TIME_ID): cv.use_id(time.RealTimeClock),
     }
-)
-
-CONFIG_SCHEMA = VOICE_ALARM_SCHEMA.extend(cv.COMPONENT)
+).extend(cv.polling_component_schema("1s"))
 
 
 async def to_code(config):
-    """Generate C++ code from validated config."""
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
-
-    speaker = 0
-    button = 0
-    rtc = 0
-
-    if config.get(CONF_SPEAKER_PIN):
-        speaker = await cg.gpio_pin_expression(config[CONF_SPEAKER_PIN])
-    if config.get(CONF_BUTTON_PIN):
-        button = await cg.gpio_pin_expression(config[CONF_BUTTON_PIN])
-    if config.get(CONF_RTC_IRQ_PIN):
-        rtc = await cg.gpio_pin_expression(config[CONF_RTC_IRQ_PIN])
-
-    if speaker or button or rtc:
-        cg.add(var.set_gpio_config(speaker, button, rtc))
+    if CONF_TIME_ID in config:
+        clock = await cg.get_variable(config[CONF_TIME_ID])
+        cg.add(var.set_time_source(clock))

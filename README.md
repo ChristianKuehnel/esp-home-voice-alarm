@@ -38,7 +38,11 @@ This project develops an integration for **ESPHome** and **Home Assistant** to c
 
 The owner interview established the [v1 implementation baseline](doc/arch/ADR-009-v1-implementation-baseline.md). Code remains scaffolding; follow the [implementation plan and acceptance cases](doc/implementation-plan.md) to build the first release.
 
-Already-set alarms work offline while the device stays powered with valid time. After reboot, schedules wait for time synchronization. Occurrences missed by at most five minutes ring; older ones are skipped. Alarms share a ringing session and stop after 15 minutes or immediate button/wake-word dismissal.
+The v1 target is for already-set alarms to work offline while the device stays powered with valid time. After reboot, schedules will wait for time synchronization. Occurrences missed by at most five minutes will ring; older ones will be skipped. Alarms will share a ringing session and stop after 15 minutes or immediate button/wake-word dismissal.
+
+## Testing
+
+The [test guide](test/README.md) covers portable C++ scheduler checks, compiled ESPHome host tests through its native API, and compiled ESP32-S3 firmware running in Espressif's `esp-emu`. CI runs all three layers, including preference persistence across restarts. Voice PE audio, microphone, and physical controls still require hardware acceptance tests.
 
 ## Why Open Source?
 

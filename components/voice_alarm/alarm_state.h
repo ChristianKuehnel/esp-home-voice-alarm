@@ -1,8 +1,7 @@
 #pragma once
 
-#include "esphome.h"
-
-#ifdef USE_ESP32
+#include <cstdint>
+#include <ctime>
 
 namespace esphome {
 namespace voice_alarm {
@@ -24,7 +23,8 @@ enum class FiringSubtype {
 class AlarmStateMachine {
  public:
   void init();
-  void tick();
+  // The caller supplies wall time so the same core runs on desktop and ESP32.
+  void tick(std::time_t now);
 
   AlarmState get_state() const { return state_; }
   FiringSubtype get_subtype() const { return subtype_; }
@@ -35,7 +35,7 @@ class AlarmStateMachine {
 
  protected:
   void transition_to(AlarmState new_state);
-  void check_alarm_firing();
+  void check_alarm_firing(std::time_t now);
   void handle_alarms();
 
   AlarmState state_ = AlarmState::IDLE;
@@ -49,5 +49,3 @@ class AlarmStateMachine {
 
 }  // namespace voice_alarm
 }  // namespace esphome
-
-#endif

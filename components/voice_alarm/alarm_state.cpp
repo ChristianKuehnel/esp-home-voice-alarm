@@ -1,19 +1,13 @@
 #include "alarm_state.h"
 
-#ifdef USE_ESP32
-
-#include <time.h>
-#include "esphome/core/log.h"
-
 namespace esphome {
 namespace voice_alarm {
 
 void AlarmStateMachine::init() {
-  ESP_LOGI("voice_alarm.state", "Alarm State Machine initialized");
   state_ = AlarmState::IDLE;
 }
 
-void AlarmStateMachine::tick() {
+void AlarmStateMachine::tick(std::time_t now) {
   switch (state_) {
     case AlarmState::IDLE:
       // Ready for new alarms
@@ -21,7 +15,7 @@ void AlarmStateMachine::tick() {
 
     case AlarmState::SET:
       // Waiting for alarm time — check every 1 second
-      check_alarm_firing();
+      check_alarm_firing(now);
       break;
 
     case AlarmState::FIRING:
@@ -36,9 +30,6 @@ void AlarmStateMachine::tick() {
 }
 
 void AlarmStateMachine::set_alarm(uint8_t hour, uint8_t minute, uint8_t days_mask) {
-  ESP_LOGI("voice_alarm.state", "Alarm set: %02d:%02d, days_mask=0x%02X",
-           hour, minute, days_mask);
-
   alarm_hour_ = hour;
   alarm_minute_ = minute;
   alarm_days_mask_ = days_mask;
@@ -52,7 +43,6 @@ void AlarmStateMachine::set_alarm(uint8_t hour, uint8_t minute, uint8_t days_mas
 }
 
 void AlarmStateMachine::clear_alarm() {
-  ESP_LOGI("voice_alarm.state", "Alarm cleared");
   alarm_enabled_ = false;
 
   if (state_ == AlarmState::FIRING) {
@@ -63,8 +53,6 @@ void AlarmStateMachine::clear_alarm() {
 }
 
 void AlarmStateMachine::stop() {
-  ESP_LOGI("voice_alarm.state", "Alarm stopped");
-
   if (state_ == AlarmState::FIRING) {
     transition_to(AlarmState::DONE);
   }
@@ -72,20 +60,17 @@ void AlarmStateMachine::stop() {
 
 void AlarmStateMachine::transition_to(AlarmState new_state) {
   if (new_state != state_) {
-    ESP_LOGI("voice_alarm.state", "State transition: %d -> %d",
-             static_cast<int>(state_), static_cast<int>(new_state));
     state_ = new_state;
   }
 }
 
-void AlarmStateMachine::check_alarm_firing() {
+void AlarmStateMachine::check_alarm_firing(std::time_t now) {
   if (!alarm_enabled_) {
     transition_to(AlarmState::IDLE);
     return;
   }
 
-  time_t now = time(nullptr);
-  struct tm *timeinfo = localtime(&now);
+  const std::tm *timeinfo = std::localtime(&now);
 
   if (timeinfo == nullptr) return;
 
@@ -97,7 +82,6 @@ void AlarmStateMachine::check_alarm_firing() {
     // Check day mask
     uint8_t current_day = (timeinfo->tm_wday + 6) % 7;  // Convert Sun=0 to Mon=0
     if (alarm_days_mask_ & (1 << current_day)) {
-      ESP_LOGI("voice_alarm.state", "Alarm firing! subtype=ALARM");
       subtype_ = FiringSubtype::ALARM;
       transition_to(AlarmState::FIRING);
     }
@@ -114,5 +98,3 @@ void AlarmStateMachine::handle_alarms() {
 
 }  // namespace voice_alarm
 }  // namespace esphome
-
-#endif

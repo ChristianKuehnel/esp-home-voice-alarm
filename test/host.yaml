@@ -1,0 +1,42 @@
+substitutions:
+  node_name: voice-alarm-host-test
+  api_port: "16053"
+
+packages:
+  harness: !include packages/harness.yaml
+
+host:
+
+# Test-only API: exposes clock/input injection, not the production HA contract.
+api:
+  port: ${api_port}
+  reboot_timeout: 0s
+  actions:
+    - action: test_set_alarm
+      variables:
+        hour: int
+        minute: int
+        days_mask: int
+      then:
+        - lambda: id(alarm_clock).state_machine().set_alarm(hour, minute, days_mask);
+    - action: test_tick
+      variables:
+        epoch: int
+      then:
+        - lambda: id(alarm_clock).state_machine().tick(epoch);
+    - action: test_button
+      then:
+        - lambda: id(alarm_clock).state_machine().stop();
+    - action: test_wake_word
+      then:
+        - lambda: id(alarm_clock).state_machine().stop();
+    - action: test_clear
+      then:
+        - lambda: id(alarm_clock).state_machine().clear_alarm();
+    - action: test_save_probe
+      variables:
+        value: int
+      then:
+        - lambda: |-
+            if (!voice_alarm_test::save_probe(value))
+              ESP_LOGE("test", "VOICE_ALARM_SMOKE_FAIL: preferences save");

@@ -1,0 +1,15 @@
+# Minimal Xtensa/ESP-IDF fixture. No Voice PE audio hardware or networking.
+substitutions:
+  node_name: voice-alarm-s3-test
+
+packages:
+  harness: !include packages/harness.yaml
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
