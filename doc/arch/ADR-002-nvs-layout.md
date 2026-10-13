@@ -1,7 +1,9 @@
 # ADR-002: NVS Data Layout & Storage Strategy
 
+> **Superseded for v1:** [ADR-009](ADR-009-v1-implementation-baseline.md) replaces this design after the 2026-10-13 owner interview. The original text below is historical; do not implement its conflicting contracts or example APIs.
+
 ## Status
-**Proposed**
+**Superseded for v1 by ADR-009**
 
 ## Context
 The alarm clock stores up to 8 alarms in the ESP32's NVS (Non-Volatile Storage). NVS has a finite erase/write cycle limit (~100,000 cycles per block), but the ESPHome `preferences` component provides wear leveling that distributes writes across multiple NVS pages.

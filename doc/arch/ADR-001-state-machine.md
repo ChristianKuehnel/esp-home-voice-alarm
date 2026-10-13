@@ -1,7 +1,9 @@
 # ADR-001: Alarm State Machine & Ticker Model
 
+> **Superseded for v1:** [ADR-009](ADR-009-v1-implementation-baseline.md) replaces this design after the 2026-10-13 owner interview. The original text below is historical; do not implement its conflicting contracts or example APIs.
+
 ## Status
-**Proposed**
+**Superseded for v1 by ADR-009**
 
 ## Context
 The alarm clock must operate **offline-first** — it cannot depend on Home Assistant being available or the network being up. The ESP32 must tick its own alarms using the local RTC, independent of any external service.

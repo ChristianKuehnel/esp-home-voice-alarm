@@ -1,5 +1,7 @@
 # ADR-007: Installation & Repository-Structure
 
+> **Implementation note (2026-10-13):** Distribution/CI direction is retained. Example configuration and compatibility claims below require validation under the [implementation plan](../implementation-plan.md); [ADR-009](ADR-009-v1-implementation-baseline.md) defines the current v1 behavior.
+
 **Status:** Final
 **Created:** 2026-09-01
 **Components:** ESPHome, Home Assistant, HACS

@@ -1,7 +1,9 @@
 # ADR-005: Alarm Volume Control
 
+> **Superseded for v1:** [ADR-009](ADR-009-v1-implementation-baseline.md) replaces this design after the 2026-10-13 owner interview. The original text below is historical; do not implement its conflicting contracts or example APIs.
+
 ## Status
-**Proposed**
+**Superseded for v1 by ADR-009**
 
 ## Context
 PRD FR-09: "Alarm volume control — P0 — Independent of media volume. Ascending volume (fade-in) is v2."

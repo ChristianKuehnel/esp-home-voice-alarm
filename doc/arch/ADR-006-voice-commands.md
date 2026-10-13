@@ -1,6 +1,8 @@
 # ADR-006: Voice Commands (Stop & Confirmation)
 
-**Status:** Final
+> **Superseded for v1:** [ADR-009](ADR-009-v1-implementation-baseline.md) replaces this design after the 2026-10-13 owner interview. The original text below is historical; do not implement its conflicting contracts or example APIs.
+
+**Status:** Superseded for v1 by ADR-009
 **Created:** 2026-08-28
 **Components:** ESPHome, Home Assistant
 **Related PRDs:** FR-13 (Voice Stop), FR-14 (Verbal Confirmation)

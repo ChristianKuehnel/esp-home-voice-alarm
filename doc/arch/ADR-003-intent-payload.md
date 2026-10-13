@@ -1,7 +1,9 @@
 # ADR-003: Intent Payload & MCP Integration
 
+> **Superseded for v1:** [ADR-009](ADR-009-v1-implementation-baseline.md) replaces this design after the 2026-10-13 owner interview. The original text below is historical; do not implement its conflicting contracts or example APIs.
+
 ## Status
-**Proposed**
+**Superseded for v1 by ADR-009**
 
 ## Context
 The alarm clock exposes **three input paths** (PRD D10), all converging on the same alarm state machine:

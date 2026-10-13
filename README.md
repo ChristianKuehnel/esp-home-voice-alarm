@@ -8,10 +8,10 @@ This project develops an integration for **ESPHome** and **Home Assistant** to c
 
 ### Goals
 
-- **Voice control**: Set, snooze, and cancel alarms using natural language via the Home Assistant Voice Assistant.
-- **ESPHome hardware**: A dedicated ESP32-based device with display and audio output, running community-driven ESPHome firmware.
+- **Voice control**: Set and cancel alarms in German and English via Home Assistant Assist. Dismiss ringing locally with the wake word or physical button.
+- **ESPHome hardware**: Home Assistant Voice PE first, using its existing speaker, button, and local wake-word facilities.
 - **Home Assistant integration**: Seamless integration into HA automations, schedules, and the broader smart home ecosystem.
-- **Alexa parity**: Achieve comparable alarm functionality — multi-alarm support, gradual wake-up tones, voice interaction, and smart home integrations (e.g., lights turning on with the alarm).
+- **Reliable alarms**: Persistent one-time and repeating schedules, independent volume, and local ringing during network outages. Reminders, snooze, and gradual wake-up tones follow later.
 
 ## Architecture
 
@@ -20,13 +20,13 @@ This project develops an integration for **ESPHome** and **Home Assistant** to c
 │              Home Assistant Core                 │
 │  ┌──────────────┐    ┌───────────────────────┐  │
 │  │ Voice        │    │ ESPHome Integration   │  │
-│  │ Assistant    │◄──►│ (alarm entity node)   │  │
+│  │ Assistant    │◄──►│ + voice_alarm         │  │
 │  └──────────────┘    └──────────┬────────────┘  │
 └─────────────────────────────────┼───────────────┘
-                                  │ ESPHome / MQTT
+                                  │ ESPHome native API
                           ┌───────▼────────┐
                           │  ESP32 Device   │
-                          │ (display,       │
+                          │ (schedules,     │
                           │  speaker,       │
                           │  buttons)       │
                           └────────────────┘
@@ -35,6 +35,10 @@ This project develops an integration for **ESPHome** and **Home Assistant** to c
 ## Status
 
 **Early development** — this project starts as a standalone plugin. The goal is to prove the concept and eventually contribute the integration to the main ESPHome and/or Home Assistant codebases.
+
+The owner interview established the [v1 implementation baseline](doc/arch/ADR-009-v1-implementation-baseline.md). Code remains scaffolding; follow the [implementation plan and acceptance cases](doc/implementation-plan.md) to build the first release.
+
+Already-set alarms work offline while the device stays powered with valid time. After reboot, schedules wait for time synchronization. Occurrences missed by at most five minutes ring; older ones are skipped. Alarms share a ringing session and stop after 15 minutes or immediate button/wake-word dismissal.
 
 ## Why Open Source?
 
