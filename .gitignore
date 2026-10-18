@@ -25,6 +25,7 @@ Thumbs.db
 
 # Local test/build tools and generated ESPHome output
 .venv/
+.venv-ha/
 .pytest_cache/
 .esphome/
 test/.esphome/

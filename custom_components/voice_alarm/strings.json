@@ -1,0 +1,24 @@
+{
+  "title": "Voice Alarm Clock",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Voice Alarm Clock",
+        "description": "Select the ESPHome device that runs the voice alarm.",
+        "data": {
+          "device_id": "ESPHome device"
+        },
+        "data_description": {
+          "device_id": "The ESPHome device (e.g. the Home Assistant Voice PE) this integration binds to."
+        }
+      }
+    },
+    "error": {
+      "unknown_device": "The selected device is no longer a known ESPHome device. Please try again."
+    },
+    "abort": {
+      "no_devices_found": "No ESPHome devices were found in the device registry.",
+      "already_configured": "The selected ESPHome device is already configured."
+    }
+  }
+}
