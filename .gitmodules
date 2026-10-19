@@ -1,0 +1,3 @@
+[submodule "vendor/home-assistant-voice-pe"]
+	path = vendor/home-assistant-voice-pe
+	url = https://github.com/esphome/home-assistant-voice-pe

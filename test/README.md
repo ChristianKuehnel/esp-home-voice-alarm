@@ -8,7 +8,8 @@ C++ scheduler in three environments. It does not emulate the complete Voice PE.
 | Native C++ | `python3 test/run_native.py` | Deterministic idle/set/fire/stop/cancel checks and every weekday bit, with no ESPHome dependency |
 | ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, and file-backed preferences across process restarts |
 | ESP32-S3 | `test/esp32-s3.yaml` + `test/run_emulator.py` | Actual Xtensa/ESP-IDF binary boot, the same scheduler assertions, ESPHome preferences backed by NVS, and a second boot from saved flash |
-| HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, and duplicate prevention |
+ | HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, and duplicate prevention |
+ | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, and the Wi-Fi/OTA/API reconnect workarounds — compiled, not emulated |
 
 The pinned compatibility matrix and clean-environment reproduction commands are
 recorded in [`doc/versions.md`](../doc/versions.md).
@@ -109,12 +110,44 @@ Logs are saved in `build/emulator-logs/`.
 Optional runner arguments are `--firmware`, `--emulator`, and `--log-dir`.
 `--firmware` must identify a merged factory image, not an OTA/application-only
 binary. The S3 fixture intentionally has no networking, I²S audio, microphone,
-or XMOS dependencies. The old `test/voice-pe.yaml` path remains an alias for
-this minimal fixture, not a full Voice PE hardware recipe.
+or XMOS dependencies.
 
 Espressif QEMU remains an alternative for future emulator compatibility work;
 it is not a verified test backend in this repository. The working esp-emu
 backend means QEMU is not required. Wokwi is optional and not part of CI.
+
+## 4. Real Voice PE recipe (compile only)
+
+```sh
+python -m esphome compile test/voice-pe.yaml
+```
+
+`test/voice-pe.yaml` is the full official Voice PE hardware recipe. It is a
+thin main config that pulls in the vendored upstream recipe (git submodule
+`vendor/home-assistant-voice-pe` at the pinned revision in
+[`doc/versions.md`](../doc/versions.md)) via `packages:`, and adds:
+
+- all 16 sound-file substitutions pinned to the submodule's `sounds/` copies;
+- the `voice_alarm:` component (component id `alarm_clock`) bound to a `time`
+  source;
+- an SNTP `time:` platform with the timezone from `!secret timezone`;
+- Wi-Fi credentials via `!secret` and `reboot_timeout: 0s` on both `wifi:` and
+  `api:`, disabling disconnect-triggered reboots per ADR-009:82;
+- `external_components:` entries that resolve `voice_alarm` (this repository's
+  `components/`) and `voice_kit` (the pinned submodule checkout) locally,
+  shadowing the upstream git source the package still declares (`ref: dev`,
+  fetched on every build — documented caveat).
+
+Credentials are not committed. Copy `test/secretstemplate.yaml` to
+`test/secrets.yaml` and fill in `wifi_ssid`, `wifi_password`, and `timezone`
+(`test/secrets.yaml` is gitignored); the `!secret` constructor resolves it from
+the recipe's directory.
+
+The first build downloads the ESP-IDF framework, the XMOS voice-kit firmware
+(`v1.3.1`), and the MicroWakeWord models into `.tools/cache`; later builds are
+incremental. This layer is a compile check: speaker output and preemption,
+buttons, and wake-word recognition are covered by the hardware acceptance
+gates in `doc/implementation-plan.md`.
 
 ## CI
 

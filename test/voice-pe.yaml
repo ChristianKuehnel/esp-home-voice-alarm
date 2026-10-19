@@ -1,4 +1,71 @@
-# Compatibility entry point for the former incorrectly named board fixture.
-# This tests the S3 component build, NOT a complete Voice PE device recipe.
+# Voice PE alarm device recipe (implementation-plan M1.3, ADR-009).
+#
+# Build with the pinned tooling (see doc/versions.md):
+#   .venv/bin/python3 -m esphome compile test/voice-pe.yaml
+#
+# Credentials live in test/secrets.yaml (gitignored); see
+# test/secretstemplate.yaml for the required keys.
+#
+# The upstream Voice PE package is vendored as a git submodule pinned to the
+# revision recorded in doc/versions.md. This file only overrides credentials,
+# reboot policy, time source, sound file locations, and adds the voice_alarm
+# binding; everything else (audio HW, buttons, media player, voice assistant)
+# comes from the package unmodified.
+
+esphome:
+  name: voice-pe-alarm
+  friendly_name: Voice PE Alarm
+
+substitutions:
+  # Pin every sound file to the vendored package revision. The upstream
+  # package defaults these to raw files on its floating "dev" branch.
+  jack_connected_sound_file: ../vendor/home-assistant-voice-pe/sounds/jack_connected.flac
+  jack_disconnected_sound_file: ../vendor/home-assistant-voice-pe/sounds/jack_disconnected.flac
+  mute_switch_on_sound_file: ../vendor/home-assistant-voice-pe/sounds/mute_switch_on.flac
+  mute_switch_off_sound_file: ../vendor/home-assistant-voice-pe/sounds/mute_switch_off.flac
+  timer_finished_sound_file: ../vendor/home-assistant-voice-pe/sounds/timer_finished.flac
+  wake_word_triggered_sound_file: ../vendor/home-assistant-voice-pe/sounds/wake_word_triggered.flac
+  center_button_press_sound_file: ../vendor/home-assistant-voice-pe/sounds/center_button_press.flac
+  center_button_double_press_sound_file: ../vendor/home-assistant-voice-pe/sounds/center_button_double_press.flac
+  center_button_triple_press_sound_file: ../vendor/home-assistant-voice-pe/sounds/center_button_triple_press.flac
+  center_button_long_press_sound_file: ../vendor/home-assistant-voice-pe/sounds/center_button_long_press.flac
+  factory_reset_initiated_sound_file: ../vendor/home-assistant-voice-pe/sounds/factory_reset_initiated.mp3
+  factory_reset_cancelled_sound_file: ../vendor/home-assistant-voice-pe/sounds/factory_reset_cancelled.mp3
+  factory_reset_confirmed_sound_file: ../vendor/home-assistant-voice-pe/sounds/factory_reset_confirmed.mp3
+  easter_egg_tick_sound_file: ../vendor/home-assistant-voice-pe/sounds/easter_egg_tick.mp3
+  easter_egg_tada_sound_file: ../vendor/home-assistant-voice-pe/sounds/easter_egg_tada.mp3
+  error_cloud_expired_sound_file: ../vendor/home-assistant-voice-pe/sounds/error_cloud_expired.mp3
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  # ADR-009: no reboot on WiFi or API disconnect. The pinned ESPHome
+  # (2026.9.1) disables the timeout with 0; it does not accept "never".
+  reboot_timeout: 0s
+
+api:
+  reboot_timeout: 0s
+
+time:
+  - platform: sntp
+    id: time_id
+    timezone: !secret timezone
+
+voice_alarm:
+  id: alarm_clock
+  time_id: time_id
+
+external_components:
+  - source: ../components
+    components:
+      - voice_alarm
+  # Vendored submodule takes precedence over the floating "dev" clone
+  # declared by the upstream package (later entries win component
+  # resolution). The package's git entry is still fetched at build time
+  # but shadowed for voice_kit.
+  - source: ../vendor/home-assistant-voice-pe/esphome/components
+    components:
+      - voice_kit
+
 packages:
-  smoke: !include esp32-s3.yaml
+  home_assistant_voice: !include ../vendor/home-assistant-voice-pe/home-assistant-voice.yaml

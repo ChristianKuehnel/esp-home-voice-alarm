@@ -39,9 +39,14 @@ pinned up front; the pins live in `test/ha/requirements.txt`.
 |-----------|-----------------|
 | Package repo | [`esphome/home-assistant-voice-pe`](https://github.com/esphome/home-assistant-voice-pe), branch `dev` |
 | Revision | `d4e6fa43d6a1a7d342b7d4d403567e06516719de` (2026-09-17, "Add hardware design files (#5)") |
+| Vendoring | git submodule at `vendor/home-assistant-voice-pe`, checkout pinned to the revision above |
 
-Voice PE recipes in this repository must reference this revision until a newer
-one is re-verified.
+Voice PE recipes in this repository must reference the submodule checkout
+until a newer revision is re-verified. The recipe `test/voice-pe.yaml`
+compiles for the official Voice PE target on the pinned ESPHome 2026.9.1
+(verified 2026-10-19, Linux x86_64). The package still declares the upstream
+git source for `voice_kit` (`ref: dev`, fetched on every build); the local
+submodule entry shadows it, so upstream drift cannot change what compiles.
 
 ## Clean-environment reproduction
 
@@ -56,6 +61,9 @@ python3 test/run_native.py
 python -m esphome compile test/host.yaml && python -m pytest -q test/test_host.py
 python -m esphome compile test/esp32-s3.yaml
 python test/install_emulator.py && python test/run_emulator.py
+# Real Voice PE recipe (compile check only; needs local secrets, see test/README.md §4)
+cp test/secretstemplate.yaml test/secrets.yaml # fill in wifi_ssid/wifi_password/timezone
+python -m esphome compile test/voice-pe.yaml
 deactivate
 
 # HA integration env (flow + entry lifecycle suite)

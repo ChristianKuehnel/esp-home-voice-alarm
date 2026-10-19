@@ -1,6 +1,6 @@
 # v1 Implementation Plan
 
-**Date:** 2026-10-13 (updated 2026-10-18 after code-state review)
+**Date:** 2026-10-13 (updated 2026-10-19: M1.1, M1.2, and M1.3 complete; code-state review 2026-10-18)
 **Baseline:** [ADR-009](arch/ADR-009-v1-implementation-baseline.md)
 **Scope:** Strict v1 per ADR-009 — alarms only on Voice PE. Reminders, snooze, Satellite1, LLM/MCP, music/custom tones, fade-in, named alarms, and voice listing are explicitly out of scope.
 
@@ -17,7 +17,6 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 | `manifest.json` claims `local_polling` | `custom_components/voice_alarm/manifest.json:9` | M1.1 |
 | HA `2024.1.0` claim unverified | `hacs.json:4` | M1.2 |
 | No services, intents, entities, or event handling | `custom_components/` | M4.x, M5.x |
-| No real Voice PE recipe (`test/voice-pe.yaml` is an S3 alias) | `test/` | M1.3 |
 
 ## Current state
 
@@ -28,14 +27,14 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 | `components/voice_alarm/` — persistence, audio, volume, entities, events | **Missing** |
 | HA integration | **M1.1 done** — device-registry config flow with `unique_id`, duplicate prevention, registry validation; no HA-local entities (volume is firmware-backed per ADR-009:72); en/de strings; 6-test pytest suite against HA 2026.2.3. Services/intents/events remain for M4.x/M5.x |
 | Compatibility matrix | **M1.2 done** — pinned in `doc/versions.md` (ESPHome 2026.9.1 / HA 2026.2.3 / aioesphomeapi 46.3.0 dev + 43.14.0 HA / esp-emu 0.49.0 / Upstream Voice PE package @ `dev` `d4e6fa4`) with clean-environment commands |
-| Voice PE recipe | **Missing** |
+| Voice PE recipe | **M1.3 done** — real recipe at `test/voice-pe.yaml`: thin main config over the vendored upstream package (`vendor/home-assistant-voice-pe` @ `d4e6fa4`), adds `voice_alarm` + NTP `time` source, disables disconnect-triggered reboots; compile-verified on the official Voice PE target with ESPHome 2026.9.1 |
 | CI | **Partial** — ESPHome layers covered; no HA integration checks (M1.5) |
 
 The owner has a Voice PE and working HA Assist available. Sequence: establish a working build and HA↔device communication path, prove scheduling/persistence deterministically, prove offline alarms on hardware, then complete HA services and both-language voice.
 
 ## Milestone 1: Establish a reproducible baseline
 
-**Done:** pinned ESPHome/Python test dependencies (`test/requirements.txt`); native scheduler, host API, and S3 emulator suites with a preferences probe surviving restarts; repaired ESPHome schema/codegen, lifecycle, and header dependencies; host/S3 fixtures with `test/voice-pe.yaml` as a documented compatibility alias; CI with native/host/emulator jobs and scheduled stable/beta/dev compatibility builds.
+**Done:** pinned ESPHome/Python test dependencies (`test/requirements.txt`); native scheduler, host API, and S3 emulator suites with a preferences probe surviving restarts; repaired ESPHome schema/codegen, lifecycle, and header dependencies; host/S3 fixtures; CI with native/host/emulator jobs and scheduled stable/beta/dev compatibility builds.
 
 ### Tasks
 
@@ -55,7 +54,7 @@ The owner has a Voice PE and working HA Assist available. Sequence: establish a 
 
 *Acceptance:* a clean clone reproduces every CI layer and the recorded versions; the matrix is committed to `test/README.md` or a dedicated `doc/versions.md`.
 
-**M1.3 — Provide a real Voice PE recipe.**
+**M1.3 — Provide a real Voice PE recipe.** (Done 2026-10-19)
 - Package with Wi-Fi (disconnection-triggered reboot disabled per ADR-009:82), `time`/NTP, `voice_assistant` with the upstream package's audio, center button, and local wake-word facilities — no new GPIO buzzer, no redefinition of the existing button.
 - Bind the `voice_alarm` component and its entities/actions. Real credentials excluded; document where they go.
 

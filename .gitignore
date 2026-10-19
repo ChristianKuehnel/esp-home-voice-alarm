@@ -20,6 +20,10 @@ Thumbs.db
 *.env
 .env
 
+# ESPHome secrets (template: test/secretstemplate.yaml)
+secrets.yaml
+secrets.yml
+
 # Logs
 *.log
 
