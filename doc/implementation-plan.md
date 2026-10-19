@@ -14,7 +14,8 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 | No persistence; `handle_alarms()` empty stub | `components/voice_alarm/alarm_state.cpp:42,91-97` | M2.4, M3.1 |
 | HA-local volume entity, step 0.1, never touches device (forbidden by ADR-009:72) | `custom_components/voice_alarm/alarm_clock.py:16,31-40` | M1.1 |
 | Config flow: no `unique_id`, module-level `async_step_user`, dead `OptionsFlow` | `custom_components/voice_alarm/config_flow.py:25,45-63` | M1.1 |
-| `manifest.json` claims `local_polling`; HA `2024.1.0` unverified | `custom_components/voice_alarm/manifest.json:9` | M1.1 |
+| `manifest.json` claims `local_polling` | `custom_components/voice_alarm/manifest.json:9` | M1.1 |
+| HA `2024.1.0` claim unverified | `hacs.json:4` | M1.2 |
 | No services, intents, entities, or event handling | `custom_components/` | M4.x, M5.x |
 | No real Voice PE recipe (`test/voice-pe.yaml` is an S3 alias) | `test/` | M1.3 |
 
@@ -25,9 +26,10 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 | Test infrastructure (native C++, host API, esp-emu NVS double-boot) | **Done** — all three layers pass; CI runs them plus scheduled compatibility builds |
 | `components/voice_alarm/` — scheduler | **Scaffold** — single-alarm state machine, injected wall clock, ESPHome wrapper; compiles on host and S3 |
 | `components/voice_alarm/` — persistence, audio, volume, entities, events | **Missing** |
-| HA integration | **Shell** — config entry + one non-functional volume entity; no services/intents/event handling |
+| HA integration | **M1.1 done** — device-registry config flow with `unique_id`, duplicate prevention, registry validation; no HA-local entities (volume is firmware-backed per ADR-009:72); en/de strings; 6-test pytest suite against HA 2026.2.3. Services/intents/events remain for M4.x/M5.x |
+| Compatibility matrix | **M1.2 done** — pinned in `doc/versions.md` (ESPHome 2026.9.1 / HA 2026.2.3 / aioesphomeapi 46.3.0 dev + 43.14.0 HA / esp-emu 0.49.0 / Upstream Voice PE package @ `dev` `d4e6fa4`) with clean-environment commands |
 | Voice PE recipe | **Missing** |
-| CI | **Partial** — ESPHome layers covered; no HA integration checks |
+| CI | **Partial** — ESPHome layers covered; no HA integration checks (M1.5) |
 
 The owner has a Voice PE and working HA Assist available. Sequence: establish a working build and HA↔device communication path, prove scheduling/persistence deterministically, prove offline alarms on hardware, then complete HA services and both-language voice.
 

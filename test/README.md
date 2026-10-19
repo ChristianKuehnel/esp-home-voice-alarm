@@ -8,6 +8,10 @@ C++ scheduler in three environments. It does not emulate the complete Voice PE.
 | Native C++ | `python3 test/run_native.py` | Deterministic idle/set/fire/stop/cancel checks and every weekday bit, with no ESPHome dependency |
 | ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, and file-backed preferences across process restarts |
 | ESP32-S3 | `test/esp32-s3.yaml` + `test/run_emulator.py` | Actual Xtensa/ESP-IDF binary boot, the same scheduler assertions, ESPHome preferences backed by NVS, and a second boot from saved flash |
+| HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, and duplicate prevention |
+
+The pinned compatibility matrix and clean-environment reproduction commands are
+recorded in [`doc/versions.md`](../doc/versions.md).
 
 ## Setup
 
@@ -22,6 +26,17 @@ python3.13 -m venv .venv
 python -m pip install -r test/requirements.txt
 export PLATFORMIO_CORE_DIR="$PWD/.tools/platformio"
 export XDG_CACHE_HOME="$PWD/.tools/cache"
+```
+
+The HA integration suite uses a separate venv (it pins a different
+`homeassistant`/`aioesphomeapi` pair than the firmware env):
+
+```sh
+python3.13 -m venv .venv-ha
+. .venv-ha/bin/activate
+python -m pip install -r test/ha/requirements.txt
+python -m pytest -q test/ha/
+deactivate
 ```
 
 The installer has checksum-pinned emulator downloads for Linux x86_64/ARM64 and
