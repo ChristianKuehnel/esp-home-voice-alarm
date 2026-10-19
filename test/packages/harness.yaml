@@ -2,6 +2,7 @@
 esphome:
   name: ${node_name}
   includes:
+    - fixtures/request_checks.h
     - fixtures/scheduler_checks.h
     - fixtures/runtime_checks.h
   on_boot:
@@ -11,6 +12,10 @@ esphome:
           setenv("TZ", "UTC0", 1);
           tzset();
           if (const char *failure = scheduler_checks()) {
+            ESP_LOGE("test", "VOICE_ALARM_SMOKE_FAIL: %s", failure);
+            return;
+          }
+          if (const char *failure = request_checks()) {
             ESP_LOGE("test", "VOICE_ALARM_SMOKE_FAIL: %s", failure);
             return;
           }
@@ -57,3 +62,8 @@ text_sensor:
         case esphome::voice_alarm::AlarmState::FIRING: return {"ringing"};
         default: return {"done"};
       }
+  - platform: template
+    id: snapshot
+    name: Test Alarm Snapshot
+    update_interval: 100ms
+    lambda: return id(alarm_clock).snapshot();

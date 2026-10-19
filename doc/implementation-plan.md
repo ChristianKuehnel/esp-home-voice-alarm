@@ -28,7 +28,7 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 | HA integration | **M1.1 done** — device-registry config flow with `unique_id`, duplicate prevention, registry validation; no HA-local entities (volume is firmware-backed per ADR-009:72); en/de strings; 6-test pytest suite against HA 2026.2.3. Services/intents/events remain for M4.x/M5.x |
 | Compatibility matrix | **M1.2 done** — pinned in `doc/versions.md` (ESPHome 2026.9.1 / HA 2026.2.3 / aioesphomeapi 46.3.0 dev + 43.14.0 HA / esp-emu 0.49.0 / Upstream Voice PE package @ `dev` `d4e6fa4`) with clean-environment commands |
 | Voice PE recipe | **M1.3 done** — real recipe at `test/voice-pe.yaml`: thin main config over the vendored upstream package (`vendor/home-assistant-voice-pe` @ `d4e6fa4`), adds `voice_alarm` + NTP `time` source, disables disconnect-triggered reboots; compile-verified on the official Voice PE target with ESPHome 2026.9.1 |
-| CI | **Partial** — ESPHome layers covered; no HA integration checks (M1.5) |
+| CI | **Done** — native checks, host build/API (incl. `set_alarm` request/ack e2e), S3 build/emulator, the HA integration suite on the pinned matrix, plus scheduled stable/beta/dev compatibility builds |
 
 The owner has a Voice PE and working HA Assist available. Sequence: establish a working build and HA↔device communication path, prove scheduling/persistence deterministically, prove offline alarms on hardware, then complete HA services and both-language voice.
 
@@ -60,14 +60,18 @@ The owner has a Voice PE and working HA Assist available. Sequence: establish a 
 
 *Acceptance:* compiles for the official Voice PE target on the pinned ESPHome with the pinned package revision; recipe includes no raw speaker/button GPIO assumptions.
 
-**M1.4 — Prove the request/acknowledgment path.**
+**M1.4 — Prove the request/acknowledgment path.** (Done 2026-10-19)
 - One targeted HA→device action on the host fixture (production-style, not a `test_*` action): request with ID + expected revision → device mutates, persists, and correlates the acknowledgment → HA refreshes the authoritative snapshot.
 - Record the exact wire mapping, schema version, and the rejection behavior for incompatible firmware.
 
+Implementation: `components/voice_alarm/alarm_request.{h,cpp}` (pure C++ validation, `request_id` echo, revision bump after durable persistence); host device action `set_alarm` with an `api.respond` v1 acknowledgment; `custom_components/voice_alarm/alarm_protocol.py` with typed errors (`UnsupportedFirmwareError`, `StaleRevisionError` carrying the authoritative revision, `VoiceAlarmCommandError`). Native checks, host e2e round trip (accept/stale/invalid + restart keeps revision), and HA-venv protocol unit tests per the matrix in `doc/versions.md`.
+
 *Acceptance:* an end-to-end test passes via the native API against the compiled host binary; incompatible/older firmware is rejected with a clear error.
 
-**M1.5 — Add HA checks to CI.**
-- Job running hassfest, lint, and the HA pytest suite from M1.1 on the pinned matrix.
+**M1.5 — Add HA checks to CI.** (Done 2026-10-19)
+- Job running the HA pytest suite from M1.1 (setup/unload/config-flow, the request/ack protocol unit tests, and manifest/translation sanity checks) on the pinned matrix (`test/ha/requirements.txt`, Python 3.13).
+
+Note: full `hassfest` is not in CI — it ships only inside a source checkout of `homeassistant/core` (no PyPI release), so it would add an unreviewable second checkout to the job. `test/ha/test_manifest.py` covers the hassfest-flagged fields (domain, version, `iot_class`, dependencies, translation steps) instead; revisit if a source-checkout-based hassfest step is desired.
 
 *Exit:* clean-environment validation/compilation and HA setup/unload tests pass; the M1.4 round trip works against the pinned versions; commands reproducing CI are documented.
 

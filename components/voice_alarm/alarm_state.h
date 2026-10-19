@@ -28,6 +28,10 @@ class AlarmStateMachine {
 
   AlarmState get_state() const { return state_; }
   FiringSubtype get_subtype() const { return subtype_; }
+  uint8_t get_alarm_hour() const { return alarm_hour_; }
+  uint8_t get_alarm_minute() const { return alarm_minute_; }
+  uint8_t get_days_mask() const { return alarm_days_mask_; }
+  bool get_alarm_enabled() const { return alarm_enabled_; }
 
   void set_alarm(uint8_t hour, uint8_t minute, uint8_t days_mask);
   void clear_alarm();

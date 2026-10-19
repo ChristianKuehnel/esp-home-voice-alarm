@@ -6,9 +6,9 @@ C++ scheduler in three environments. It does not emulate the complete Voice PE.
 | Layer | Entry point | Coverage today |
 |-------|-------------|----------------|
 | Native C++ | `python3 test/run_native.py` | Deterministic idle/set/fire/stop/cancel checks and every weekday bit, with no ESPHome dependency |
-| ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, and file-backed preferences across process restarts |
+| ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, the production `set_alarm` request/ack round trip (accept/stale/invalid + revision survives restart), and file-backed preferences across process restarts |
 | ESP32-S3 | `test/esp32-s3.yaml` + `test/run_emulator.py` | Actual Xtensa/ESP-IDF binary boot, the same scheduler assertions, ESPHome preferences backed by NVS, and a second boot from saved flash |
- | HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, and duplicate prevention |
+ | HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, duplicate prevention, and `set_alarm` request/ack protocol unit tests |
  | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, and the Wi-Fi/OTA/API reconnect workarounds — compiled, not emulated |
 
 The pinned compatibility matrix and clean-environment reproduction commands are
@@ -69,8 +69,43 @@ The test starts and cleans up the compiled process itself. It uses TCP port
 16053, refuses to proceed if that port is already in use, and connects using
 `aioesphomeapi`. It asserts firing and dismissal through two independently
 injected inputs, reconnects to the running process, writes a preferences probe,
-then restarts and verifies the restored value. Preferences and logs are isolated
-in pytest's temporary directory. Failure output includes the process log.
+then restarts and verifies the restored value. The second test exercises the
+production-style `set_alarm` action end to end through
+`custom_components/voice_alarm/alarm_protocol.py`: an accepted request advances
+the revision and snapshot, a stale request is rejected with the authoritative
+revision, an invalid request surfaces the device error message, and a restart
+keeps the revision (the schedule itself is not persisted until M2).
+Preferences and logs are isolated in pytest's temporary directory. Failure
+output includes the process log.
+
+### `set_alarm` wire mapping (schema version 1)
+
+The device exposes the user action `set_alarm` with integer variables
+`request_id`, `expected_revision`, `hour`, `minute`, `days_mask`. HA calls it
+via `APIClient.execute_service(service, data, return_response=True)` and
+receives an `ExecuteServiceResponse`:
+
+- `success`: `true` only for `status: "ok"`.
+- `error_message`: the device-side rejection reason (for example
+  `hour must be 0..23`, or
+  `expected_revision does not match the device revision`); empty on success.
+- `response_data`: JSON, e.g.
+  `{"schema_version": 1, "request_id": 9, "status": "ok", "revision": 1}`.
+  `revision` is always the device's current authoritative revision;
+  `request_id` echoes the request. `status` is one of `ok`, `stale_revision`,
+  `invalid_hour`, `invalid_minute`, `invalid_days_mask`.
+
+Rejection semantics: a stale or invalid request changes neither the schedule
+nor the revision, and the acknowledgment still reports the current revision so
+the caller can refresh and re-issue once. A device whose action is missing,
+answers with no payload, times out, or reports another `schema_version`
+is considered non-capable: `alarm_protocol` raises `UnsupportedFirmwareError`,
+and the caller must refresh device state — never blind-retry the command.
+The HA protocol (typed errors `CommandAck`, `SetAlarmRequest`,
+`UnsupportedFirmwareError`, `StaleRevisionError`, `VoiceAlarmCommandError`)
+lives in `custom_components/voice_alarm/alarm_protocol.py` and depends only on
+`aioesphomeapi`, so it is unit-tested in `test/ha/test_alarm_protocol.py` and
+reused by this e2e test.
 
 To inspect the fixture manually:
 
@@ -152,17 +187,20 @@ gates in `doc/implementation-plan.md`.
 ## CI
 
 Every push to `main` and every PR runs native checks, the pinned host build/API
-test, and the pinned S3 build/emulator test. The emulator job uploads boot logs
-and the factory image/ELF. Daily and manually dispatched compatibility builds
-also compile against ESPHome stable, beta, and dev; those are compile checks,
-not extra verified emulator combinations.
+test (including the `set_alarm` request/ack round trip), the pinned S3
+build/emulator test, and the HA integration pytest suite (config flow, entry
+lifecycle, request/ack protocol, manifest/translation sanity). The emulator job
+uploads boot logs and the factory image/ELF. Daily and manually dispatched
+compatibility builds also compile against ESPHome stable, beta, and dev; those
+are compile checks, not extra verified emulator combinations.
 
 ## Coverage still to implement
 
 The scheduler remains the original single-alarm scaffold with an injectable
 clock. This test setup deliberately does not claim completion of ADR-009.
 The preferences probe is fixture-only storage, not persistent alarm schedules.
-The test API is not the planned `voice_alarm` HA service/acknowledgment contract.
+The host fixture proves the `set_alarm` request/ack contract (M1.4); the
+custom-integration HA service, voice intents, and events arrive with M4.
 
 Add implementation and regression tests for dated one-shots, rearming repeating
 alarms, crossing missed deadlines, invalid clocks, DST, five-minute catch-up,

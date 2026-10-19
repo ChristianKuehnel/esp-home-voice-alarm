@@ -7,11 +7,36 @@ packages:
 
 host:
 
-# Test-only API: exposes clock/input injection, not the production HA contract.
+# API: production request/ack action plus test-only clock/input injection.
 api:
   port: ${api_port}
   reboot_timeout: 0s
   actions:
+    # M1.4 contract: HA issues this and receives a structured acknowledgment.
+    # A stale or invalid request is echoed back with success=false and the
+    # current revision; the schedule and revision stay unchanged.
+    - action: set_alarm
+      variables:
+        request_id: int
+        expected_revision: int
+        hour: int
+        minute: int
+        days_mask: int
+      then:
+        - lambda: |-
+            id(alarm_clock).process_set_alarm_request(
+                request_id, expected_revision, hour, minute, days_mask);
+        - api.respond:
+            success: !lambda |-
+              return id(alarm_clock).last_result().status == esphome::voice_alarm::RequestStatus::OK;
+            error_message: !lambda |-
+              return id(alarm_clock).last_error_message();
+            data: !lambda |-
+              const auto &result = id(alarm_clock).last_result();
+              root["schema_version"] = esphome::voice_alarm::kRequestSchemaVersion;
+              root["request_id"] = result.request_id;
+              root["status"] = esphome::voice_alarm::request_status_name(result.status);
+              root["revision"] = result.revision;
     - action: test_set_alarm
       variables:
         hour: int

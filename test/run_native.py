@@ -17,6 +17,7 @@ def main():
         include = build / "esphome/components/voice_alarm"
         include.mkdir(parents=True)
         shutil.copy2(ROOT / "components/voice_alarm/alarm_state.h", include)
+        shutil.copy2(ROOT / "components/voice_alarm/alarm_request.h", include)
         executable = build / "scheduler-tests"
         subprocess.run(
             [*shlex.split(os.environ.get("CXX", "g++")), "-std=c++17",
@@ -24,6 +25,7 @@ def main():
              "-I", str(build), "-I", str(ROOT / "test/fixtures"),
              str(ROOT / "test/native/main.cpp"),
              str(ROOT / "components/voice_alarm/alarm_state.cpp"),
+             str(ROOT / "components/voice_alarm/alarm_request.cpp"),
              "-o", str(executable)],
             check=True,
         )
