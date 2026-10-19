@@ -14,6 +14,7 @@ enum class RequestStatus : uint8_t {
   INVALID_HOUR = 2,
   INVALID_MINUTE = 3,
   INVALID_DAYS_MASK = 4,
+  STORAGE_ERROR = 5,
 };
 
 struct SetAlarmRequest {

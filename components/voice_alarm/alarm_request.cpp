@@ -34,6 +34,8 @@ const char *request_status_name(RequestStatus status) {
       return "invalid_minute";
     case RequestStatus::INVALID_DAYS_MASK:
       return "invalid_days_mask";
+    case RequestStatus::STORAGE_ERROR:
+      return "storage_error";
   }
   return "unknown";
 }

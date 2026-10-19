@@ -58,6 +58,28 @@ def host_process(tmp_path):
             print(log_path.read_text(errors="replace"))
 
 
+def corrupt_schedule_blob(prefs_path):
+    """Flip the magic of the stored schedule blob, simulating a failed write."""
+    data = prefs_path.read_bytes()
+    out = bytearray()
+    i = 0
+    corrupted = False
+    while i + 5 <= len(data):
+        key = int.from_bytes(data[i : i + 4], "little")
+        length = data[i + 4]
+        record_end = i + 5 + length
+        if key == 0x76617363:  # "vasc"
+            blob = bytearray(data[i + 5 : record_end])
+            blob[0] ^= 0xFF
+            out += data[i : i + 5] + bytes(blob)
+            corrupted = True
+        else:
+            out += data[i:record_end]
+        i = record_end
+    assert corrupted, "schedule blob not found in prefs file"
+    prefs_path.write_bytes(bytes(out))
+
+
 async def connect(process):
     deadline = time.monotonic() + 15
     while time.monotonic() < deadline:
@@ -100,10 +122,11 @@ async def exercise(tmp_path):
         try:
             expect, action, services = await observe(client)
             await expect("Test Persistence Probe", 1)
-            await expect("Test Alarm State", "idle")
+            await expect("Test Alarm State", "waiting_for_time")
             for dismiss in ("test_button", "test_wake_word"):
                 await action("test_clear")
                 await action("test_tick", epoch=MONDAY - 60)
+                await expect("Test Alarm State", "idle")
                 await action("test_set_alarm", hour=7, minute=0, days_mask=1)
                 await expect("Test Alarm State", "armed")
                 await action("test_tick", epoch=MONDAY - 60)
@@ -148,9 +171,9 @@ async def contract(tmp_path):
     with host_process(tmp_path) as process:
         client = await connect(process)
         try:
-            expect, _, services = await observe(client)
+            expect, action, services = await observe(client)
             await expect("Test Alarm Snapshot", "revision=0;hour=0;minute=0;days_mask=0;enabled=0")
-            await expect("Test Alarm State", "idle")
+            await expect("Test Alarm State", "waiting_for_time")
 
             # Accepted: the ack carries the echoed request_id and the new revision.
             ack = await alarm_protocol.set_alarm(
@@ -166,6 +189,8 @@ async def contract(tmp_path):
             await expect(
                 "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1"
             )
+            # The first valid tick moves the device out of waiting_for_time.
+            await action("test_tick", epoch=MONDAY - 60)
             await expect("Test Alarm State", "armed")
 
             # Stale: rejected with the authoritative revision; nothing changes.
@@ -199,13 +224,13 @@ async def contract(tmp_path):
         finally:
             await client.disconnect()
 
-    # Restart: the revision is durable; the schedule itself is not persisted
-    # until M2, so the device boots empty at the persisted revision.
+    # Restart: the revision and the schedule are both durable, so the device
+    # boots with the persisted alarm at the persisted revision.
     with host_process(tmp_path) as process:
         client = await connect(process)
         try:
-            expect, _, services = await observe(client)
-            await expect("Test Alarm Snapshot", "revision=1;hour=0;minute=0;days_mask=0;enabled=0")
+            expect, action, services = await observe(client)
+            await expect("Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1")
             ack = await alarm_protocol.set_alarm(
                 client,
                 services,
@@ -224,3 +249,78 @@ async def contract(tmp_path):
 
 def test_host_set_alarm_request_ack_round_trip(tmp_path):
     asyncio.run(contract(tmp_path))
+
+
+# M2.4: an occurrence that fired before a reboot must not refire after it. The
+# handled-occurrence bookkeeping is durable, so the same wall time is skipped.
+async def restart_dedup(tmp_path):
+    with host_process(tmp_path) as process:
+        client = await connect(process)
+        try:
+            expect, action, services = await observe(client)
+            ack = await alarm_protocol.set_alarm(
+                client,
+                services,
+                alarm_protocol.SetAlarmRequest(request_id=1, expected_revision=0, hour=7, minute=0, days_mask=1),
+            )
+            assert ack.status == "ok" and ack.revision == 1
+            await action("test_tick", epoch=MONDAY - 60)  # 06:59: no fire.
+            await expect("Test Ringing", False)
+            await action("test_tick", epoch=MONDAY)  # 07:00 Monday: fire.
+            await expect("Test Ringing", True)
+            await action("test_button")  # dismiss.
+            await expect("Test Ringing", False)
+        finally:
+            await client.disconnect()
+
+    with host_process(tmp_path) as process:
+        client = await connect(process)
+        try:
+            expect, action, services = await observe(client)
+            await expect("Test Alarm Snapshot", "revision=1;hour=7;minute=0;days_mask=1;enabled=1")
+            await action("test_tick", epoch=MONDAY)  # the same 07:00 Monday.
+            await expect("Test Ringing", False)  # the handled occurrence does not refire.
+        finally:
+            await client.disconnect()
+
+
+def test_host_restart_dedup(tmp_path):
+    asyncio.run(restart_dedup(tmp_path))
+
+
+# M2.4: a corrupt schedule blob is preserved (not overwritten) and surfaces an
+# error; the device still boots and serves an empty schedule.
+async def storage_failure(tmp_path):
+    prefs = tmp_path / "prefs" / "voice-alarm-host-test.prefs"
+    with host_process(tmp_path) as process:
+        client = await connect(process)
+        try:
+            expect, action, services = await observe(client)
+            ack = await alarm_protocol.set_alarm(
+                client,
+                services,
+                alarm_protocol.SetAlarmRequest(request_id=1, expected_revision=0, hour=7, minute=0, days_mask=1),
+            )
+            assert ack.status == "ok"
+        finally:
+            await client.disconnect()
+
+    corrupt_schedule_blob(prefs)
+
+    with host_process(tmp_path) as process:
+        client = await connect(process)
+        try:
+            expect, action, services = await observe(client)
+            await expect("Test Alarm State", "error")
+            await expect("Test Alarm Snapshot", "revision=1;hour=0;minute=0;days_mask=0;enabled=0")
+        finally:
+            await client.disconnect()
+
+    # The corrupt blob was preserved: the device did not overwrite it. The
+    # corrupted magic is 0x63 ^ 0xFF = 0x9C followed by the intact "s a v".
+    data = prefs.read_bytes()
+    assert b"\x9c\x73\x61\x76" in data, "corrupt schedule blob was overwritten"
+
+
+def test_host_storage_failure_preserves_and_surfaces_error(tmp_path):
+    asyncio.run(storage_failure(tmp_path))

@@ -1,6 +1,6 @@
 # v1 Implementation Plan
 
-**Date:** 2026-10-13 (updated 2026-10-19: M1.1, M1.2, and M1.3 complete; code-state review 2026-10-18)
+**Date:** 2026-10-13 (updated 2026-10-19: M1.1–M1.5 and M2.1–M2.5 complete; code-state review 2026-10-18)
 **Baseline:** [ADR-009](arch/ADR-009-v1-implementation-baseline.md)
 **Scope:** Strict v1 per ADR-009 — alarms only on Voice PE. Reminders, snooze, Satellite1, LLM/MCP, music/custom tones, fade-in, named alarms, and voice listing are explicitly out of scope.
 
@@ -23,8 +23,8 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 | Area | Status |
 |------|--------|
 | Test infrastructure (native C++, host API, esp-emu NVS double-boot) | **Done** — all three layers pass; CI runs them plus scheduled compatibility builds |
-| `components/voice_alarm/` — scheduler | **Scaffold** — single-alarm state machine, injected wall clock, ESPHome wrapper; compiles on host and S3 |
-| `components/voice_alarm/` — persistence, audio, volume, entities, events | **Missing** |
+| `components/voice_alarm/` — scheduler | **M2 done** — ADR-009 model: eight stable-ID entries (repeating + one-shot), crossed-deadline firing with inclusive 300 s catch-up, DST gap/repeated-hour handling, shared ringing session with 15-min monotonic timeout, `waiting_for_time`/`idle`/`armed`/`ringing`/`error` states; proven in the native layer |
+| `components/voice_alarm/` — persistence | **M2 done** — versioned `vasc` schedule blob (magic/version/count/fields/allocator), durable save on schedule changes and occurrence transitions, corrupt/unknown/incompatible blobs preserved + error surfaced; round trips, restart dedup, and storage failure proven in native + host. Audio, volume, entities, and events remain (M3/M4) |
 | HA integration | **M1.1 done** — device-registry config flow with `unique_id`, duplicate prevention, registry validation; no HA-local entities (volume is firmware-backed per ADR-009:72); en/de strings; 6-test pytest suite against HA 2026.2.3. Services/intents/events remain for M4.x/M5.x |
 | Compatibility matrix | **M1.2 done** — pinned in `doc/versions.md` (ESPHome 2026.9.1 / HA 2026.2.3 / aioesphomeapi 46.3.0 dev + 43.14.0 HA / esp-emu 0.49.0 / Upstream Voice PE package @ `dev` `d4e6fa4`) with clean-environment commands |
 | Voice PE recipe | **M1.3 done** — real recipe at `test/voice-pe.yaml`: thin main config over the vendored upstream package (`vendor/home-assistant-voice-pe` @ `d4e6fa4`), adds `voice_alarm` + NTP `time` source, disables disconnect-triggered reboots; compile-verified on the official Voice PE target with ESPHome 2026.9.1 |
@@ -76,6 +76,8 @@ Note: full `hassfest` is not in CI — it ships only inside a source checkout of
 *Exit:* clean-environment validation/compilation and HA setup/unload tests pass; the M1.4 round trip works against the pinned versions; commands reproducing CI are documented.
 
 ## Milestone 2: Implement scheduling and persistence
+
+**Done (2026-10-19):** the scaffold is rewritten into the ADR-009 model. All scheduling logic runs against injected wall + monotonic clocks with no audio or network on the scheduling path. Proven in the native layer (model/validation, firing/catch-up/DST, session/timeout) and the host layer (persistence across restart, restart dedup, storage failure). The native `scheduler_checks`/`dst_checks` and the host suite run in lockstep.
 
 Rewrite the scaffold (`components/voice_alarm/alarm_state.*`) into the ADR-009 model. All logic against injected wall + monotonic clocks; no audio or network calls on the scheduling path. Expand `test/fixtures/scheduler_checks.h` and the host suite in lockstep.
 

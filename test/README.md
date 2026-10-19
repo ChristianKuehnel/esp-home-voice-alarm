@@ -5,8 +5,8 @@ C++ scheduler in three environments. It does not emulate the complete Voice PE.
 
 | Layer | Entry point | Coverage today |
 |-------|-------------|----------------|
-| Native C++ | `python3 test/run_native.py` | Deterministic idle/set/fire/stop/cancel checks and every weekday bit, with no ESPHome dependency |
-| ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, the production `set_alarm` request/ack round trip (accept/stale/invalid + revision survives restart), and file-backed preferences across process restarts |
+| Native C++ | `python3 test/run_native.py` | The ADR-009 scheduler: model/validation (capacity, stable IDs, one-shot), crossed-deadline firing, 300 s catch-up, clock corrections, DST (spring gap / autumn repeated hour under `America/New_York`), shared ringing session, 15-min monotonic timeout, and versioned storage round trips/corruption — with no ESPHome dependency |
+| ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, the production `set_alarm` request/ack round trip (accept/stale/invalid), and file-backed preferences: schedule + revision survive restart, a fired occurrence does not refire after reboot, and a corrupt schedule blob is preserved and surfaces an error |
 | ESP32-S3 | `test/esp32-s3.yaml` + `test/run_emulator.py` | Actual Xtensa/ESP-IDF binary boot, the same scheduler assertions, ESPHome preferences backed by NVS, and a second boot from saved flash |
  | HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, duplicate prevention, and `set_alarm` request/ack protocol unit tests |
  | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, and the Wi-Fi/OTA/API reconnect workarounds — compiled, not emulated |
@@ -51,12 +51,14 @@ python3 test/run_native.py
 ```
 
 This compiles `components/voice_alarm/alarm_state.cpp` directly with warnings
-treated as errors and runs `test/fixtures/scheduler_checks.h`. Output is
-`VOICE_ALARM_NATIVE_PASS`. Build products live in a temporary directory.
+treated as errors and runs `test/fixtures/scheduler_checks.h` (TZ-independent,
+`TZ=UTC0`) and `test/fixtures/dst_checks.h` (under `America/New_York`). Output
+is `VOICE_ALARM_NATIVE_PASS`. Build products live in a temporary directory.
 
-The core takes an explicit wall-clock timestamp; tests advance time without
-sleeping. The runner fixes `TZ=UTC0`. No ESPHome headers or behavior are mocked.
-Add future scheduler cases here so the same assertions also run in the firmware.
+The core takes an explicit wall-clock timestamp and monotonic elapsed time;
+tests advance time without sleeping. No ESPHome headers or behavior are mocked.
+The same `scheduler_checks` assertions also run in the host and firmware
+boot smoke tests, so the deterministic core stays in lockstep with the device.
 
 ## 2. Host/API integration
 
@@ -74,7 +76,10 @@ production-style `set_alarm` action end to end through
 `custom_components/voice_alarm/alarm_protocol.py`: an accepted request advances
 the revision and snapshot, a stale request is rejected with the authoritative
 revision, an invalid request surfaces the device error message, and a restart
-keeps the revision (the schedule itself is not persisted until M2).
+restores both the revision and the schedule. A third test proves a fired
+occurrence does not refire after a reboot (durable occurrence bookkeeping), and
+a fourth corrupts the stored schedule blob and verifies the device boots,
+preserves the blob, and surfaces an error state.
 Preferences and logs are isolated in pytest's temporary directory. Failure
 output includes the process log.
 
@@ -91,9 +96,9 @@ receives an `ExecuteServiceResponse`:
   `expected_revision does not match the device revision`); empty on success.
 - `response_data`: JSON, e.g.
   `{"schema_version": 1, "request_id": 9, "status": "ok", "revision": 1}`.
-  `revision` is always the device's current authoritative revision;
-  `request_id` echoes the request. `status` is one of `ok`, `stale_revision`,
-  `invalid_hour`, `invalid_minute`, `invalid_days_mask`.
+   `revision` is always the device's current authoritative revision;
+   `request_id` echoes the request. `status` is one of `ok`, `stale_revision`,
+   `invalid_hour`, `invalid_minute`, `invalid_days_mask`, `storage_error`.
 
 Rejection semantics: a stale or invalid request changes neither the schedule
 nor the revision, and the acknowledgment still reports the current revision so
@@ -196,16 +201,14 @@ are compile checks, not extra verified emulator combinations.
 
 ## Coverage still to implement
 
-The scheduler remains the original single-alarm scaffold with an injectable
-clock. This test setup deliberately does not claim completion of ADR-009.
-The preferences probe is fixture-only storage, not persistent alarm schedules.
-The host fixture proves the `set_alarm` request/ack contract (M1.4); the
-custom-integration HA service, voice intents, and events arrive with M4.
+The scheduler and its versioned storage are implemented (M2) and proven in the
+native and host layers above. The preferences probe remains fixture-only storage
+separate from the alarm schedule. The custom-integration HA service, voice
+intents, and live firing events arrive with M4/M5.
 
-Add implementation and regression tests for dated one-shots, rearming repeating
-alarms, crossing missed deadlines, invalid clocks, DST, five-minute catch-up,
-multiple entries/shared sessions, monotonic 15-minute timeout, versioned alarm
-storage, failed saves, and restart deduplication. Follow the acceptance table in
+Add implementation and regression tests for the HA `set_alarm`/`delete_alarm`/
+`stop`/`list_alarms` service layer (M4), one-shot creation through the wire
+(M4), and the hardware acceptance cases (M3). Follow the acceptance table in
 [the implementation plan](../doc/implementation-plan.md).
 
 Use the physical Voice PE for sound/volume/preemption, microphone mute, real

@@ -34,10 +34,18 @@ class VoiceAlarmClock : public PollingComponent {
   // "revision=1;hour=7;minute=0;days_mask=31;enabled=1".
   std::string snapshot() const;
 
+  // Test hook for the clock-less host fixture: advances the scheduler and
+  // persists any occurrence transition, mirroring update().
+  void tick_and_persist(std::time_t now, uint32_t mono_ms);
+
  protected:
+  RequestStatus map_mutate_error(MutateStatus status) const;
+  bool save_schedule();
+
   time::RealTimeClock *clock_{nullptr};
   AlarmStateMachine state_machine_;
   ESPPreferenceObject revision_preference_;
+  ESPPreferenceObject schedule_preference_;
   uint32_t revision_{0};
   RequestResult last_result_{};
 };

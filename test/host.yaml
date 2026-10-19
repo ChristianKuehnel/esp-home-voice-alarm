@@ -43,12 +43,12 @@ api:
         minute: int
         days_mask: int
       then:
-        - lambda: id(alarm_clock).state_machine().set_alarm(hour, minute, days_mask);
+        - lambda: id(alarm_clock).state_machine().upsert_repeating(hour, minute, days_mask, 0);
     - action: test_tick
       variables:
         epoch: int
       then:
-        - lambda: id(alarm_clock).state_machine().tick(epoch);
+        - lambda: id(alarm_clock).tick_and_persist(epoch, static_cast<uint32_t>(epoch));
     - action: test_button
       then:
         - lambda: id(alarm_clock).state_machine().stop();
@@ -57,7 +57,7 @@ api:
         - lambda: id(alarm_clock).state_machine().stop();
     - action: test_clear
       then:
-        - lambda: id(alarm_clock).state_machine().clear_alarm();
+        - lambda: id(alarm_clock).state_machine().remove_all();
     - action: test_save_probe
       variables:
         value: int
