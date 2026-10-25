@@ -14,6 +14,17 @@ static const char *const TAG = "voice_alarm";
 namespace {
 constexpr uint32_t REVISION_PREF_MAGIC = 0x76617270;  // "varp", reserved for the clock revision.
 constexpr uint32_t SCHEDULE_PREF_MAGIC = 0x76617363;  // "vasc", the versioned schedule blob.
+
+// The 1-argument ESPPreferenceObject::load()/save() templates derive the byte
+// length from sizeof(T). A raw uint8_t[] would decay to uint8_t* (sizeof 1), so
+// wrap the blob in a sized struct to persist exactly kScheduleMaxSize bytes.
+// Using the 1-argument form (rather than the 2-argument raw overload) keeps the
+// component building on ESPHome versions whose preference object only exposes
+// the template form (e.g. 2026.7.x) as well as newer ones.
+struct ScheduleBlob {
+  uint8_t data[kScheduleMaxSize];
+};
+static_assert(sizeof(ScheduleBlob) == kScheduleMaxSize, "ScheduleBlob must match the preference size");
 }  // namespace
 
 void VoiceAlarmClock::setup() {
@@ -21,9 +32,9 @@ void VoiceAlarmClock::setup() {
   this->revision_preference_ = global_preferences->make_preference<uint32_t>(REVISION_PREF_MAGIC);
   this->revision_preference_.load(&this->revision_);
   this->schedule_preference_ = global_preferences->make_preference(kScheduleMaxSize, SCHEDULE_PREF_MAGIC);
-  uint8_t buffer[kScheduleMaxSize];
-  if (this->schedule_preference_.load(buffer, sizeof(buffer))) {
-    if (!this->state_machine_.load_from(buffer, sizeof(buffer))) {
+  ScheduleBlob blob;
+  if (this->schedule_preference_.load(&blob)) {
+    if (!this->state_machine_.load_from(blob.data, sizeof(blob.data))) {
       // Preserve the stored bytes (no overwrite) and surface the error.
       this->state_machine_.report_storage_error("alarm schedule storage is corrupt or incompatible");
       ESP_LOGE(TAG, "Failed to load alarm schedule; preserving stored data");
@@ -32,10 +43,10 @@ void VoiceAlarmClock::setup() {
 }
 
 bool VoiceAlarmClock::save_schedule() {
-  uint8_t buffer[kScheduleMaxSize];
-  if (!this->state_machine_.serialize_to(buffer, sizeof(buffer)))
+  ScheduleBlob blob;
+  if (!this->state_machine_.serialize_to(blob.data, sizeof(blob.data)))
     return false;
-  return this->schedule_preference_.save(buffer, sizeof(buffer)) && global_preferences->sync();
+  return this->schedule_preference_.save(&blob) && global_preferences->sync();
 }
 
 void VoiceAlarmClock::update() {
