@@ -14,6 +14,7 @@ static const char *const TAG = "voice_alarm";
 namespace {
 constexpr uint32_t REVISION_PREF_MAGIC = 0x76617270;  // "varp", reserved for the clock revision.
 constexpr uint32_t SCHEDULE_PREF_MAGIC = 0x76617363;  // "vasc", the versioned schedule blob.
+constexpr uint32_t VOLUME_PREF_MAGIC = 0x76617276;    // "varv", the independent alarm volume.
 
 // The 1-argument ESPPreferenceObject::load()/save() templates derive the byte
 // length from sizeof(T). A raw uint8_t[] would decay to uint8_t* (sizeof 1), so
@@ -40,13 +41,24 @@ void VoiceAlarmClock::setup() {
       ESP_LOGE(TAG, "Failed to load alarm schedule; preserving stored data");
     }
   }
+  this->volume_preference_ = global_preferences->make_preference<float>(VOLUME_PREF_MAGIC);
+  // An invalid stored value (missing, corrupt, NaN) falls back to the default.
+  if (!this->volume_preference_.load(&this->alarm_volume_) ||
+      !(this->alarm_volume_ >= kAlarmVolumeMin && this->alarm_volume_ <= kAlarmVolumeMax))
+    this->alarm_volume_ = kAlarmVolumeDefault;
+  this->last_state_ = this->state_machine_.get_state();
 }
 
 bool VoiceAlarmClock::save_schedule() {
   ScheduleBlob blob;
   if (!this->state_machine_.serialize_to(blob.data, sizeof(blob.data)))
     return false;
-  return this->schedule_preference_.save(&blob) && global_preferences->sync();
+  if (!this->schedule_preference_.save(&blob) || !global_preferences->sync())
+    return false;
+  // A successful durable save proves storage health; clear a previously
+  // reported load error so the state can leave ERROR without a reboot.
+  this->state_machine_.clear_storage_error();
+  return true;
 }
 
 void VoiceAlarmClock::update() {
@@ -61,6 +73,40 @@ void VoiceAlarmClock::update() {
     if (!this->save_schedule())
       ESP_LOGE(TAG, "Failed to persist alarm occurrence transition");
   }
+  this->note_state_change();
+}
+
+void VoiceAlarmClock::note_state_change() {
+  const AlarmState state = this->state_machine_.get_state();
+  if (state == this->last_state_)
+    return;
+  this->last_state_ = state;
+  this->state_callback_.call(state);
+}
+
+void VoiceAlarmClock::set_alarm_volume(float volume) {
+  // Comparisons against NaN are unordered; map any out-of-range or unordered
+  // value deterministically into [kAlarmVolumeMin, kAlarmVolumeMax].
+  if (!(volume >= kAlarmVolumeMin && volume <= kAlarmVolumeMax))
+    volume = (volume < kAlarmVolumeMin) ? kAlarmVolumeMin : kAlarmVolumeMax;
+  if (volume == this->alarm_volume_)
+    return;
+  this->alarm_volume_ = volume;
+  if (!this->volume_preference_.save(&this->alarm_volume_) || !global_preferences->sync())
+    ESP_LOGE(TAG, "Failed to persist alarm volume");
+  ESP_LOGI(TAG, "Alarm volume set to %.2f", this->alarm_volume_);
+}
+
+bool VoiceAlarmClock::dismiss_session() {
+  const bool was_active = this->state_machine_.session_active();
+  this->state_machine_.stop();
+  if (this->state_machine_.transition_pending()) {
+    this->state_machine_.clear_transition_pending();
+    if (!this->save_schedule())
+      ESP_LOGE(TAG, "Failed to persist alarm dismissal");
+  }
+  this->note_state_change();
+  return was_active;
 }
 
 RequestResult VoiceAlarmClock::process_set_alarm_request(uint32_t request_id, uint32_t expected_revision,
@@ -141,11 +187,12 @@ std::string VoiceAlarmClock::last_error_message() const {
 }
 
 std::string VoiceAlarmClock::snapshot() const {
-  char buffer[96];
+  char buffer[128];
   const AlarmEntry *entry = this->state_machine_.first_repeating();
-  std::snprintf(buffer, sizeof(buffer), "revision=%u;hour=%u;minute=%u;days_mask=%u;enabled=%d", this->revision_,
-                entry != nullptr ? entry->hour : 0, entry != nullptr ? entry->minute : 0,
-                entry != nullptr ? entry->days_mask : 0, (entry != nullptr && entry->enabled) ? 1 : 0);
+  std::snprintf(buffer, sizeof(buffer), "revision=%u;hour=%u;minute=%u;days_mask=%u;enabled=%d;volume=%.2f",
+                this->revision_, entry != nullptr ? entry->hour : 0, entry != nullptr ? entry->minute : 0,
+                entry != nullptr ? entry->days_mask : 0, (entry != nullptr && entry->enabled) ? 1 : 0,
+                this->alarm_volume_);
   return buffer;
 }
 
@@ -153,6 +200,7 @@ void VoiceAlarmClock::dump_config() {
   ESP_LOGCONFIG(TAG, "Voice Alarm Clock (scheduler)");
   ESP_LOGCONFIG(TAG, "  Request/ack schema version: %u", static_cast<unsigned>(kRequestSchemaVersion));
   ESP_LOGCONFIG(TAG, "  Time source: %s", this->clock_ == nullptr ? "injected by caller" : "configured");
+  ESP_LOGCONFIG(TAG, "  Alarm volume: %.2f", this->alarm_volume_);
   LOG_UPDATE_INTERVAL(this);
 }
 

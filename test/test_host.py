@@ -104,7 +104,15 @@ async def observe(client):
         key = keys[name]
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
-            if key in states and states[key].state == value:
+            state = states.get(key)
+            if state is not None and (
+                state.state == value
+                or (
+                    isinstance(state.state, float)
+                    and isinstance(value, (int, float))
+                    and abs(state.state - value) < 0.005
+                )
+            ):
                 return
             await asyncio.sleep(0.02)
         raise AssertionError(f"{name}: expected {value!r}, received {states.get(key)!r}")
@@ -172,7 +180,7 @@ async def contract(tmp_path):
         client = await connect(process)
         try:
             expect, action, services = await observe(client)
-            await expect("Test Alarm Snapshot", "revision=0;hour=0;minute=0;days_mask=0;enabled=0")
+            await expect("Test Alarm Snapshot", "revision=0;hour=0;minute=0;days_mask=0;enabled=0;volume=0.70")
             await expect("Test Alarm State", "waiting_for_time")
 
             # Accepted: the ack carries the echoed request_id and the new revision.
@@ -187,7 +195,7 @@ async def contract(tmp_path):
             assert ack.request_id == 9
             assert ack.revision == 1
             await expect(
-                "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1"
+                "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1;volume=0.70"
             )
             # The first valid tick moves the device out of waiting_for_time.
             await action("test_tick", epoch=MONDAY - 60)
@@ -204,7 +212,7 @@ async def contract(tmp_path):
                 )
             assert stale.value.authoritative_revision == 1
             await expect(
-                "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1"
+                "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1;volume=0.70"
             )
 
             # Invalid field: device error message surfaces verbatim; nothing changes.
@@ -219,7 +227,7 @@ async def contract(tmp_path):
                     ),
                 )
             await expect(
-                "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1"
+                "Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1;volume=0.70"
             )
         finally:
             await client.disconnect()
@@ -230,7 +238,7 @@ async def contract(tmp_path):
         client = await connect(process)
         try:
             expect, action, services = await observe(client)
-            await expect("Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1")
+            await expect("Test Alarm Snapshot", "revision=1;hour=7;minute=30;days_mask=31;enabled=1;volume=0.70")
             ack = await alarm_protocol.set_alarm(
                 client,
                 services,
@@ -241,7 +249,7 @@ async def contract(tmp_path):
             assert ack.status == "ok"
             assert ack.revision == 2
             await expect(
-                "Test Alarm Snapshot", "revision=2;hour=8;minute=15;days_mask=127;enabled=1"
+                "Test Alarm Snapshot", "revision=2;hour=8;minute=15;days_mask=127;enabled=1;volume=0.70"
             )
         finally:
             await client.disconnect()
@@ -277,7 +285,7 @@ async def restart_dedup(tmp_path):
         client = await connect(process)
         try:
             expect, action, services = await observe(client)
-            await expect("Test Alarm Snapshot", "revision=1;hour=7;minute=0;days_mask=1;enabled=1")
+            await expect("Test Alarm Snapshot", "revision=1;hour=7;minute=0;days_mask=1;enabled=1;volume=0.70")
             await action("test_tick", epoch=MONDAY)  # the same 07:00 Monday.
             await expect("Test Ringing", False)  # the handled occurrence does not refire.
         finally:
@@ -312,7 +320,7 @@ async def storage_failure(tmp_path):
         try:
             expect, action, services = await observe(client)
             await expect("Test Alarm State", "error")
-            await expect("Test Alarm Snapshot", "revision=1;hour=0;minute=0;days_mask=0;enabled=0")
+            await expect("Test Alarm Snapshot", "revision=1;hour=0;minute=0;days_mask=0;enabled=0;volume=0.70")
         finally:
             await client.disconnect()
 
@@ -324,3 +332,41 @@ async def storage_failure(tmp_path):
 
 def test_host_storage_failure_preserves_and_surfaces_error(tmp_path):
     asyncio.run(storage_failure(tmp_path))
+
+
+# M3.1: the independent alarm volume is firmware-backed and persisted
+# separately from the schedule. The component clamps out-of-range values to
+# 0.1..1.0 and a saved volume survives a restart.
+async def alarm_volume(tmp_path):
+    with host_process(tmp_path) as process:
+        client = await connect(process)
+        try:
+            expect, action, services = await observe(client)
+            # The device default is 0.7 (PRD: range 0.1-1.0, step 0.01).
+            await expect("Test Alarm Volume", 0.7)
+            # Out-of-range values clamp to the edges.
+            await action("test_set_volume", value=5.0)
+            await expect("Test Alarm Volume", 1.0)
+            await action("test_set_volume", value=-3.0)
+            await expect("Test Alarm Volume", 0.1)
+            # A normal set round-trips.
+            await action("test_set_volume", value=0.65)
+            await expect("Test Alarm Volume", 0.65)
+            await expect(
+                "Test Alarm Snapshot",
+                "revision=0;hour=0;minute=0;days_mask=0;enabled=0;volume=0.65",
+            )
+        finally:
+            await client.disconnect()
+
+    with host_process(tmp_path) as process:
+        client = await connect(process)
+        try:
+            expect, _, _ = await observe(client)
+            await expect("Test Alarm Volume", 0.65)
+        finally:
+            await client.disconnect()
+
+
+def test_host_alarm_volume_clamps_and_persists(tmp_path):
+    asyncio.run(alarm_volume(tmp_path))

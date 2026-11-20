@@ -31,6 +31,10 @@ def test_manifest_fields():
     manifest = _load("manifest.json")
     assert manifest["domain"] == INTEGRATION.name
     assert manifest["name"]
+    # Without this flag the loader omits the integration from
+    # async_get_config_flows(), so the "Add Integration" dialog refuses to
+    # offer UI setup ("configure via configuration.yaml" message).
+    assert manifest["config_flow"] is True
     assert re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"])
     assert manifest["iot_class"] in VALID_IOT_CLASSES
     assert manifest["documentation"]

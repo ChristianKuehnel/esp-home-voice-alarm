@@ -8,12 +8,16 @@ This project ships in two parts, and **both are required**:
    binds the ESPHome device in Home Assistant and carries the alarm
    set/cancel protocol.
 
-> **Status:** early development (v0.1.0). Today the device stores schedules in
-> flash, rings alarms through the device speaker, works offline once time is
-> synchronized, and supports dismissal via the physical button or wake word
-> (see [ADR-009](arch/ADR-009-v1-implementation-baseline.md)). Voice intents
-> for setting and canceling alarms are still in progress
-> ([implementation plan](implementation-plan.md)).
+> **Status:** early development (v0.1.0). The device stores schedules in
+> flash and works offline once time is synchronized
+> (see [ADR-009](arch/ADR-009-v1-implementation-baseline.md)). On the
+> Home Assistant Voice PE, the reference recipe additionally rings alarms
+> through the device speaker, applies an independent persisted alarm
+> volume, and supports dismissal via the center button or the "stop"
+> wake word. These M3 behaviors are implemented in the recipe but not yet
+> hardware-verified (the M3 gates in the [implementation
+> plan](implementation-plan.md)). Voice intents for setting and canceling
+> alarms are still in progress.
 
 ## Prerequisites
 

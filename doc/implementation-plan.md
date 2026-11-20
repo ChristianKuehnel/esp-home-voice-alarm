@@ -1,6 +1,6 @@
 # v1 Implementation Plan
 
-**Date:** 2026-10-13 (updated 2026-10-19: M1.1–M1.5 and M2.1–M2.5 complete; code-state review 2026-10-18)
+**Date:** 2026-10-13 (updated 2026-11-19: M1.1–M1.5 and M2.1–M2.5 complete; M3.1–M3.3 implemented, hardware gates HA-1…HA-5 pending; code-state review 2026-10-18)
 **Baseline:** [ADR-009](arch/ADR-009-v1-implementation-baseline.md)
 **Scope:** Strict v1 per ADR-009 — alarms only on Voice PE. Reminders, snooze, Satellite1, LLM/MCP, music/custom tones, fade-in, named alarms, and voice listing are explicitly out of scope.
 
@@ -24,11 +24,12 @@ PRD, ADR-009, README, and this plan are mutually consistent on every v1 behavior
 |------|--------|
 | Test infrastructure (native C++, host API, esp-emu NVS double-boot) | **Done** — all three layers pass; CI runs them plus scheduled compatibility builds |
 | `components/voice_alarm/` — scheduler | **M2 done** — ADR-009 model: eight stable-ID entries (repeating + one-shot), crossed-deadline firing with inclusive 300 s catch-up, DST gap/repeated-hour handling, shared ringing session with 15-min monotonic timeout, `waiting_for_time`/`idle`/`armed`/`ringing`/`error` states; proven in the native layer |
-| `components/voice_alarm/` — persistence | **M2 done** — versioned `vasc` schedule blob (magic/version/count/fields/allocator), durable save on schedule changes and occurrence transitions, corrupt/unknown/incompatible blobs preserved + error surfaced; round trips, restart dedup, and storage failure proven in native + host. Audio, volume, entities, and events remain (M3/M4) |
+| `components/voice_alarm/` — persistence | **M2 done** — versioned `vasc` schedule blob (magic/version/count/fields/allocator), durable save on schedule changes and occurrence transitions, corrupt/unknown/incompatible blobs preserved + error surfaced; round trips, restart dedup, and storage failure proven in native + host. Audio, volume, and entities are implemented (M3); live events remain (M4) |
+| `components/voice_alarm/` — alarm layer (M3) | **M3 implemented, hardware verification pending** — persisted independent alarm volume (`varv` preference, 0.1–1.0, default 0.7, clamped), `on_state` automation on every `AlarmState` transition, `dismiss_session()` for external stop paths, state/firing/snapshot/volume entities, sticky storage error cleared on a successful save. Volume clamping/persistence proven in the host layer; ringing/dismissal wired in the Voice PE recipe (compile-verified, hardware gates HA-1…HA-5 pending) |
 | HA integration | **M1.1 done** — device-registry config flow with `unique_id`, duplicate prevention, registry validation; no HA-local entities (volume is firmware-backed per ADR-009:72); en/de strings; 6-test pytest suite against HA 2026.2.3. Services/intents/events remain for M4.x/M5.x |
 | Compatibility matrix | **M1.2 done** — pinned in `doc/versions.md` (ESPHome 2026.9.1 / HA 2026.2.3 / aioesphomeapi 46.3.0 dev + 43.14.0 HA / esp-emu 0.49.0 / Upstream Voice PE package @ `dev` `d4e6fa4`) with clean-environment commands |
-| Voice PE recipe | **M1.3 done** — real recipe at `test/voice-pe.yaml`: thin main config over the vendored upstream package (`vendor/home-assistant-voice-pe` @ `d4e6fa4`), adds `voice_alarm` + NTP `time` source, disables disconnect-triggered reboots; compile-verified on the official Voice PE target with ESPHome 2026.9.1 |
-| CI | **Done** — native checks, host build/API (incl. `set_alarm` request/ack e2e), S3 build/emulator, the HA integration suite on the pinned matrix, plus scheduled stable/beta/dev compatibility builds |
+| Voice PE recipe | **M1.3 + M3 done (hardware verification pending)** — real recipe at `test/voice-pe.yaml`: thin main config over the vendored upstream package (`vendor/home-assistant-voice-pe` @ `d4e6fa4`), adds `voice_alarm` + NTP `time` source, disables disconnect-triggered reboots, the production `set_alarm` API action, and the M3 alarm wiring (ringing via the upstream `timer_ringing` switch with local tone repeat, media-volume capture/restore around the persisted alarm volume, button + "stop" wake-word dismissal with a 2 s convergence poll); compile-verified on the official Voice PE target with ESPHome 2026.9.1 |
+| CI | **Done** — native checks, host build/API (incl. `set_alarm` request/ack e2e and alarm-volume persistence), S3 build/emulator, a compile-only Voice PE build, the HA integration suite on the pinned matrix, plus scheduled stable/beta/dev compatibility builds |
 
 The owner has a Voice PE and working HA Assist available. Sequence: establish a working build and HA↔device communication path, prove scheduling/persistence deterministically, prove offline alarms on hardware, then complete HA services and both-language voice.
 
@@ -122,15 +123,21 @@ Uses the M1.3 recipe. Deterministic equivalents live in the test layers; the har
 
 ### Tasks
 
-**M3.1 — Local audio and volume.**
+**M3.1 — Local audio and volume.** *(Implemented 2026-11-19; hardware verification pending)*
 - Play the locally available timer tone through the upstream audio pipeline; no runtime network fetch for ringing.
 - Apply the persisted independent alarm volume (step 0.01, 0.1–1.0), preempt media, and restore the prior media volume after ringing. Bypass DND suppression.
 
-**M3.2 — Physical and voice dismissal.**
+Recipe: `on_state` → RINGING turns on the upstream `timer_ringing` switch (local `timer_finished` tone on repeat through the priority announcement pipeline, 20 dB media ducking, "stop" wake word, LEDs); the media player volume is captured before the persisted alarm volume is applied and restored exactly once when RINGING ends. The package defines no suppression mechanism, and the announcement pipeline preempts normal media.
+
+**M3.2 — Physical and voice dismissal.** *(Implemented 2026-11-19; hardware verification pending)*
 - Center button and local wake-word callbacks dismiss immediately without waiting for HA; the microphone-mute state does not prevent button dismissal. Ordinary Assist/button behavior is preserved outside ringing.
 
-**M3.3 — Entities and device-side action.**
+Recipe: the upstream single-click and "stop" wake-word paths turn `timer_ringing` off (audio stops immediately); a 2-second poll calls `dismiss_session()` once the session outlives the switch, converging state to `idle` and restoring the volume. The scheduler's own 15-minute monotonic timeout also ends the session. The upstream button path is gated only on `disable_buttons`/init flags, not the mute state.
+
+**M3.3 — Entities and device-side action.** *(Implemented 2026-11-19; hardware verification pending)*
 - Expose firmware-backed state, firing status, and volume as standard native-API entities, plus the device-side set action used by M1.4/M4.
+
+Recipe: `Alarm State` (text sensor), `Alarm Ringing` (binary sensor), `Alarm Snapshot` (text sensor, includes the volume), `Alarm Volume` (number, 0.1–1.0/step 0.01, applied live while ringing), and the `set_alarm` API action with structured acknowledgment.
 
 ### Owner hardware gates (blocking)
 

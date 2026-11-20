@@ -9,7 +9,7 @@ C++ scheduler in three environments. It does not emulate the complete Voice PE.
 | ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, the production `set_alarm` request/ack round trip (accept/stale/invalid), and file-backed preferences: schedule + revision survive restart, a fired occurrence does not refire after reboot, and a corrupt schedule blob is preserved and surfaces an error |
 | ESP32-S3 | `test/esp32-s3.yaml` + `test/run_emulator.py` | Actual Xtensa/ESP-IDF binary boot, the same scheduler assertions, ESPHome preferences backed by NVS, and a second boot from saved flash |
  | HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, duplicate prevention, and `set_alarm` request/ack protocol unit tests |
- | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, and the Wi-Fi/OTA/API reconnect workarounds — compiled, not emulated |
+ | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, the Wi-Fi/OTA/API reconnect workarounds, and the M3 alarm wiring (ringing via the upstream `timer_ringing` switch, persisted alarm volume with media-volume capture/restore, button + "stop" wake-word dismissal) — compiled, not emulated |
 
 The pinned compatibility matrix and clean-environment reproduction commands are
 recorded in [`doc/versions.md`](../doc/versions.md).
@@ -79,7 +79,10 @@ revision, an invalid request surfaces the device error message, and a restart
 restores both the revision and the schedule. A third test proves a fired
 occurrence does not refire after a reboot (durable occurrence bookkeeping), and
 a fourth corrupts the stored schedule blob and verifies the device boots,
-preserves the blob, and surfaces an error state.
+preserves the blob, and surfaces an error state. A fifth test covers the
+M3 alarm volume: the `Alarm Volume` number entity reads and writes the
+persisted volume (default 0.7, clamped to 0.1–1.0) and the value survives a
+restart; the volume also appears in the `Alarm Snapshot` text.
 Preferences and logs are isolated in pytest's temporary directory. Failure
 output includes the process log.
 
@@ -173,6 +176,23 @@ thin main config that pulls in the vendored upstream recipe (git submodule
 - an SNTP `time:` platform with the timezone from `!secret timezone`;
 - Wi-Fi credentials via `!secret` and `reboot_timeout: 0s` on both `wifi:` and
   `api:`, disabling disconnect-triggered reboots per ADR-009:82;
+- the production `set_alarm` API action with structured acknowledgment
+  (same wire mapping as the host fixture, below);
+- the M3 alarm wiring, all through public upstream hooks (no package edits):
+  - `voice_alarm.on_state`: entering `RINGING` captures the media player
+    volume, applies the persisted alarm volume, then turns on the package's
+    internal `timer_ringing` switch (local timer tone on repeat through the
+    announcement pipeline, media ducking, "stop" wake word, button stopping,
+    LEDs, 15-minute upstream self-stop). Leaving `RINGING` turns the switch
+    off (if still on) and restores the captured media volume exactly once.
+  - Dismissal: the package's center-button single click and "stop" wake word
+    turn the switch off (audio stops immediately); a 2-second poll calls
+    `dismiss_session()` once the scheduler's session has outlived the switch,
+    so state converges to `idle`. The scheduler's own 15-minute monotonic
+    timeout also ends the session.
+  - Firmware-backed entities: `Alarm State` (text sensor), `Alarm Ringing`
+    (binary sensor), `Alarm Snapshot` (text sensor), `Alarm Volume` (number,
+    0.1–1.0/step 0.01, persisted independently of the schedule).
 - `external_components:` entries that resolve `voice_alarm` (this repository's
   `components/`) and `voice_kit` (the pinned submodule checkout) locally,
   shadowing the upstream git source the package still declares (`ref: dev`,
@@ -193,18 +213,22 @@ gates in `doc/implementation-plan.md`.
 
 Every push to `main` and every PR runs native checks, the pinned host build/API
 test (including the `set_alarm` request/ack round trip), the pinned S3
-build/emulator test, and the HA integration pytest suite (config flow, entry
-lifecycle, request/ack protocol, manifest/translation sanity). The emulator job
-uploads boot logs and the factory image/ELF. Daily and manually dispatched
-compatibility builds also compile against ESPHome stable, beta, and dev; those
-are compile checks, not extra verified emulator combinations.
+build/emulator test, the HA integration pytest suite (config flow, entry
+lifecycle, request/ack protocol, manifest/translation sanity), and a
+compile-only build of the Voice PE recipe (dummy secrets from
+`test/secretstemplate.yaml`). The emulator job uploads boot logs and the
+factory image/ELF. Daily and manually dispatched compatibility builds also
+compile against ESPHome stable, beta, and dev; those are compile checks, not
+extra verified emulator combinations.
 
 ## Coverage still to implement
 
-The scheduler and its versioned storage are implemented (M2) and proven in the
-native and host layers above. The preferences probe remains fixture-only storage
-separate from the alarm schedule. The custom-integration HA service, voice
-intents, and live firing events arrive with M4/M5.
+The scheduler, its versioned storage, and the M3 alarm layer (volume
+persistence in the component; ringing, media-volume capture/restore, and
+button/wake-word dismissal in the Voice PE recipe) are implemented and proven
+where possible in the layers above. The preferences probe remains fixture-only
+storage separate from the alarm schedule. The custom-integration HA service,
+voice intents, and live firing events arrive with M4/M5.
 
 Add implementation and regression tests for the HA `set_alarm`/`delete_alarm`/
 `stop`/`list_alarms` service layer (M4), one-shot creation through the wire

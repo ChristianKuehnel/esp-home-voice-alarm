@@ -58,6 +58,11 @@ api:
     - action: test_clear
       then:
         - lambda: id(alarm_clock).state_machine().remove_all();
+    - action: test_set_volume
+      variables:
+        value: float
+      then:
+        - lambda: id(alarm_clock).set_alarm_volume(value);
     - action: test_save_probe
       variables:
         value: int
