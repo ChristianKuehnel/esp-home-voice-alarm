@@ -48,6 +48,24 @@ compiles for the official Voice PE target on the pinned ESPHome 2026.9.1
 git source for `voice_kit` (`ref: dev`, fetched on every build); the local
 submodule entry shadows it, so upstream drift cannot change what compiles.
 
+## Upstream Satellite1 firmware package
+
+| Component | Pinned revision |
+|-----------|-----------------|
+| Package repo | [`FutureProofHomes/Satellite1-ESPHome`](https://github.com/FutureProofHomes/Satellite1-ESPHome), tag `v0.2.1` |
+| Delivery | git source at `https://github.com/FutureProofHomes/Satellite1-ESPHome@v0.2.1` (package + external components under `esphome/components/`), not vendored |
+
+The recipe `test/satellite1.yaml` compiles for the Satellite1 target on the
+pinned ESPHome 2026.9.1 (verified 2026-11-20, Linux x86_64). Two adaptations
+are required, both in the recipe:
+
+- The base package does not define a `time` source or a `logger`; the recipe
+  provides both (the full upstream user config does).
+- The package's `satellite1_radar` component needs the IDF `json` (cJSON) and
+  `esp_http_server` components, which ESPHome excludes by default. v0.2.1
+  does not request them (upstream fixed this in `v0.2.2-beta.0`), so the
+  recipe re-includes them via `esp32.advanced.include_builtin_idf_components`.
+
 ## Clean-environment reproduction
 
 ```sh
@@ -61,9 +79,10 @@ python3 test/run_native.py
 python -m esphome compile test/host.yaml && python -m pytest -q test/test_host.py
 python -m esphome compile test/esp32-s3.yaml
 python test/install_emulator.py && python test/run_emulator.py
-# Real Voice PE recipe (compile check only; needs local secrets, see test/README.md §4)
+# Real device recipes (compile check only; needs local secrets, see test/README.md §4)
 cp test/secretstemplate.yaml test/secrets.yaml # fill in wifi_ssid/wifi_password/timezone
 python -m esphome compile test/voice-pe.yaml
+python -m esphome compile test/satellite1.yaml # fetches package + XMOS image upstream
 deactivate
 
 # HA integration env (flow + entry lifecycle suite)

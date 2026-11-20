@@ -1,0 +1,76 @@
+# Satellite1 alarm device recipe (implementation-plan M3, second verified
+# target).
+#
+# Build with the pinned tooling (see doc/versions.md):
+#   .venv/bin/python3 -m esphome compile test/satellite1.yaml
+#
+# No Wi-Fi credentials are needed: the Satellite1 package provisions
+# Wi-Fi over BLE (improv). The only secret this recipe uses is the
+# timezone (test/secrets.yaml; see test/secretstemplate.yaml).
+#
+# The Satellite1 package is included from the upstream repository at the
+# pinned release (see doc/versions.md); its external components live in
+# the same repository (esphome/components/, resolved automatically by
+# ESPHome's git source) at the same revision. This file only adds the
+# time source, the voice_alarm binding, and the M3 wiring package
+# (packages/alarm-wiring.yaml — the very file real users include with
+# one line); everything else (audio HW, buttons, media player, voice
+# assistant) comes from the package unmodified.
+#
+# The M3 wiring works through the package's public hooks, exactly like
+# the Voice PE recipe: the internal timer_ringing switch (local tone on
+# repeat, media ducking, "stop" wake word, action-button stopping, LED
+# ring) and the external_media_player (persisted alarm volume for the
+# duration of the ring, prior media volume restored after).
+#
+# Compile only: the build fetches the package's external components and
+# the embedded XMOS firmware image from the upstream repositories.
+
+external_components:
+  - source: ../components
+    components:
+      - voice_alarm
+  - source:
+      type: git
+      url: https://github.com/FutureProofHomes/Satellite1-ESPHome
+      ref: v0.2.1
+    components:
+      - fusb302b
+      - i2s_audio
+      - memory_flasher
+      - satellite1
+      - satellite1_radar
+      - tas2780
+
+packages:
+  satellite1: "github://FutureProofHomes/Satellite1-ESPHome/config/satellite1.base.yaml@v0.2.1"
+  # M3 alarm wiring: the same package real users include (see
+  # packages/alarm-wiring.yaml).
+  voice_alarm.m3: !include ../packages/alarm-wiring.yaml
+
+# The base package expects a logger (its wifi package uses improv_serial,
+# which requires one); the upstream full config provides its own.
+logger:
+  level: INFO
+
+# The package's satellite1_radar component needs the cJSON library and the
+# esp_http_server component, both of which ESPHome excludes from the IDF
+# build by default. v0.2.1 does not request them itself (fixed upstream in
+# v0.2.2-beta.0 via the same mechanism), so the recipe re-includes them.
+esp32:
+  framework:
+    advanced:
+      include_builtin_idf_components:
+        - json
+        - esp_http_server
+
+# The Satellite1 package does not define a time source, so the recipe
+# provides one.
+time:
+  - platform: sntp
+    id: alarm_time
+    timezone: !secret timezone
+
+voice_alarm:
+  id: alarm_clock
+  time_id: alarm_time

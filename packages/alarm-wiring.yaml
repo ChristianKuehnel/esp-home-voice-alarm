@@ -1,0 +1,175 @@
+# Voice Alarm M3 wiring: alarm audio, volume, dismissal, and entities.
+#
+# Include this single file in a voice device config to add the full M3
+# alarm experience:
+#
+#   packages:
+#     voice_alarm.m3: "github://ChristianKuehnel/esp-home-voice-alarm/packages/alarm-wiring.yaml@main"
+#
+# It complements the Part 1 §1/§2 basics from doc/installation.md: the
+# external_components entry for the voice_alarm component, a time source,
+# and the voice_alarm block.
+#
+# Assumptions (documented contract — copy this file and adjust the ids if
+# yours differ):
+#   voice_alarm component id ......... alarm_clock
+#   device package switch ............ timer_ringing
+#   device package media player ...... external_media_player
+#
+# The device package must provide the two hooks above (no package edits
+# are required). Verified against (pins in doc/versions.md):
+#   - esphome/home-assistant-voice-pe @d4e6fa4
+#   - FutureProofHomes/Satellite1-ESPHome @v0.2.1
+#
+# What this file adds (see doc/implementation-plan.md, M3):
+# - api.actions.set_alarm: the esphome.<node>_set_alarm HA service with
+#   the structured request/ack (M1.4/M3.3 contract).
+# - wifi/api reboot_timeout 0s: the ADR-009 no-reboot policy.
+# - voice_alarm.on_state: entering RINGING turns the package's
+#   timer_ringing switch on (local tone on repeat, media ducking, "stop"
+#   wake word, button stopping, LED ring); leaving it turns the switch
+#   off and restores the media volume captured at ring start. The
+#   persisted, independent alarm volume is applied for the duration of
+#   the ringing session.
+# - A 2 s poll that converges the scheduler to idle after the button or
+#   "stop" wake word stops the ring (the package stops the ring without
+#   telling the state machine).
+# - Entities: Alarm State, Alarm Ringing, Alarm Snapshot, Alarm Volume.
+#
+# Keep every id() call in a lambda on one line: the lambda parser only
+# rewrites id(x).member to x->member when the "." directly follows the
+# id on the same line.
+
+wifi:
+  reboot_timeout: 0s
+
+api:
+  reboot_timeout: 0s
+  actions:
+    - action: set_alarm
+      variables:
+        request_id: int
+        expected_revision: int
+        hour: int
+        minute: int
+        days_mask: int
+      then:
+        - lambda: |-
+            id(alarm_clock).process_set_alarm_request(
+                request_id, expected_revision, hour, minute, days_mask);
+        - api.respond:
+            success: !lambda |-
+              return id(alarm_clock).last_result().status == esphome::voice_alarm::RequestStatus::OK;
+            error_message: !lambda |-
+              return id(alarm_clock).last_error_message();
+            data: !lambda |-
+              const auto &result = id(alarm_clock).last_result();
+              root["schema_version"] = esphome::voice_alarm::kRequestSchemaVersion;
+              root["request_id"] = result.request_id;
+              root["status"] = esphome::voice_alarm::request_status_name(result.status);
+              root["revision"] = result.revision;
+
+voice_alarm:
+  on_state:
+    - if:
+        condition:
+          lambda: return state == esphome::voice_alarm::AlarmState::RINGING;
+        then:
+          # Capture the media volume and apply the persisted alarm
+          # volume before the ring starts.
+          - lambda: |-
+              id(alarm_media_volume_saved) = id(external_media_player)->volume;
+              id(alarm_volume_overridden) = true;
+          - lambda: |-
+              id(external_media_player).make_call().set_volume(id(alarm_clock).alarm_volume()).perform();
+          - switch.turn_on: timer_ringing
+        else:
+          # Stop the ring only if it is still running; a redundant
+          # turn_off would re-run the upstream on_turn_off cleanup.
+          - if:
+              condition:
+                switch.is_on: timer_ringing
+              then:
+                - switch.turn_off: timer_ringing
+          # Restore the pre-ring media volume exactly once.
+          - lambda: |-
+              if (id(alarm_volume_overridden)) {
+                id(external_media_player).make_call().set_volume(id(alarm_media_volume_saved)).perform();
+                id(alarm_volume_overridden) = false;
+              }
+
+globals:
+  - id: alarm_media_volume_saved
+    type: float
+    initial_value: "1.0f"
+  - id: alarm_volume_overridden
+    type: bool
+    initial_value: "false"
+
+# The button and the "stop" wake word stop the ring through the
+# package's own machinery, which turns the timer_ringing switch off
+# without telling the state machine. Poll the switch so the scheduler
+# converges to idle (and the media volume is restored) shortly after
+# either dismissal path.
+interval:
+  - interval: 2s
+    then:
+      - if:
+          condition:
+            and:
+              - switch.is_off: timer_ringing
+              - lambda: return id(alarm_clock).state_machine().session_active();
+          then:
+            - lambda: id(alarm_clock).dismiss_session();
+
+binary_sensor:
+  # The template binary sensor lambda form runs on every loop; ESPHome
+  # suppresses publishes while the state is unchanged, so no interval is
+  # needed (the option is not available on this platform).
+  - platform: template
+    name: Alarm Ringing
+    id: alarm_ringing
+    lambda: |-
+      return id(alarm_clock).state_machine().get_state() == esphome::voice_alarm::AlarmState::RINGING;
+
+text_sensor:
+  - platform: template
+    name: Alarm State
+    id: alarm_state
+    update_interval: 1s
+    lambda: |-
+      using State = esphome::voice_alarm::AlarmState;
+      switch (id(alarm_clock).state_machine().get_state()) {
+        case State::WAITING_FOR_TIME:
+          return "waiting_for_time";
+        case State::IDLE:
+          return "idle";
+        case State::ARMED:
+          return "armed";
+        case State::RINGING:
+          return "ringing";
+        case State::ERROR:
+          return "error";
+      }
+      return "unknown";
+  - platform: template
+    name: Alarm Snapshot
+    id: alarm_snapshot
+    update_interval: 1s
+    lambda: return id(alarm_clock).snapshot();
+
+number:
+  - platform: template
+    name: Alarm Volume
+    id: alarm_volume
+    min_value: 0.1
+    max_value: 1.0
+    step: 0.01
+    update_interval: 1s
+    lambda: return id(alarm_clock).alarm_volume();
+    set_action:
+      - lambda: |-
+          id(alarm_clock).set_alarm_volume(x);
+          // Apply immediately while a session is ringing.
+          if (id(alarm_clock).state_machine().session_active())
+            id(external_media_player).make_call().set_volume(x).perform();

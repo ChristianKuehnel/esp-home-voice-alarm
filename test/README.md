@@ -9,7 +9,8 @@ C++ scheduler in three environments. It does not emulate the complete Voice PE.
 | ESPHome host | `test/host.yaml` + `test/test_host.py` | Compiled ESPHome component, real native API, injected button/wake-word callbacks, disconnect/reconnect, the production `set_alarm` request/ack round trip (accept/stale/invalid), and file-backed preferences: schedule + revision survive restart, a fired occurrence does not refire after reboot, and a corrupt schedule blob is preserved and surfaces an error |
 | ESP32-S3 | `test/esp32-s3.yaml` + `test/run_emulator.py` | Actual Xtensa/ESP-IDF binary boot, the same scheduler assertions, ESPHome preferences backed by NVS, and a second boot from saved flash |
  | HA integration | `test/ha/` (pytest suite) | Config flow + entry lifecycle against a pinned `homeassistant` build: registry validation, unload, duplicate prevention, and `set_alarm` request/ack protocol unit tests |
- | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, the Wi-Fi/OTA/API reconnect workarounds, and the M3 alarm wiring (ringing via the upstream `timer_ringing` switch, persisted alarm volume with media-volume capture/restore, button + "stop" wake-word dismissal) — compiled, not emulated |
+ | Voice PE recipe | `test/voice-pe.yaml` (compile only) | Full official Voice PE hardware recipe: vendored upstream package + `voice_alarm`, NTP, the Wi-Fi/OTA/API reconnect workarounds, and the M3 alarm wiring (shared package `packages/alarm-wiring.yaml`) — compiled, not emulated |
+ | Satellite1 recipe | `test/satellite1.yaml` (compile only) | Second verified alarm target: upstream `FutureProofHomes/Satellite1-ESPHome` package at the pinned release + `voice_alarm`, SNTP, and the same M3 wiring package — compiled, not emulated |
 
 The pinned compatibility matrix and clean-environment reproduction commands are
 recorded in [`doc/versions.md`](../doc/versions.md).
@@ -159,74 +160,101 @@ Espressif QEMU remains an alternative for future emulator compatibility work;
 it is not a verified test backend in this repository. The working esp-emu
 backend means QEMU is not required. Wokwi is optional and not part of CI.
 
-## 4. Real Voice PE recipe (compile only)
+## 4. Real device recipes (compile only)
 
 ```sh
 python -m esphome compile test/voice-pe.yaml
+python -m esphome compile test/satellite1.yaml
 ```
 
-`test/voice-pe.yaml` is the full official Voice PE hardware recipe. It is a
-thin main config that pulls in the vendored upstream recipe (git submodule
-`vendor/home-assistant-voice-pe` at the pinned revision in
+Both recipes keep the M3 alarm layer verified against two real device
+packages. They share the wiring: the M3 blocks (alarm audio, volume,
+dismissal, entities, the `set_alarm` action, the no-reboot policy) live in
+[`packages/alarm-wiring.yaml`](../packages/alarm-wiring.yaml) — the same file
+real users include with one line (see
+[doc/installation.md](../doc/installation.md), Part 1 §3) — and both recipes
+`!include` it.
+
+### `test/voice-pe.yaml`
+
+The full official Voice PE hardware recipe. A thin main config that pulls in
+the vendored upstream recipe (git submodule `vendor/home-assistant-voice-pe`
+at the pinned revision in
 [`doc/versions.md`](../doc/versions.md)) via `packages:`, and adds:
 
 - all 16 sound-file substitutions pinned to the submodule's `sounds/` copies;
-- the `voice_alarm:` component (component id `alarm_clock`) bound to a `time`
-  source;
-- an SNTP `time:` platform with the timezone from `!secret timezone`;
-- Wi-Fi credentials via `!secret` and `reboot_timeout: 0s` on both `wifi:` and
-  `api:`, disabling disconnect-triggered reboots per ADR-009:82;
-- the production `set_alarm` API action with structured acknowledgment
-  (same wire mapping as the host fixture, below);
-- the M3 alarm wiring, all through public upstream hooks (no package edits):
-  - `voice_alarm.on_state`: entering `RINGING` captures the media player
-    volume, applies the persisted alarm volume, then turns on the package's
-    internal `timer_ringing` switch (local timer tone on repeat through the
-    announcement pipeline, media ducking, "stop" wake word, button stopping,
-    LEDs, 15-minute upstream self-stop). Leaving `RINGING` turns the switch
-    off (if still on) and restores the captured media volume exactly once.
-  - Dismissal: the package's center-button single click and "stop" wake word
-    turn the switch off (audio stops immediately); a 2-second poll calls
-    `dismiss_session()` once the scheduler's session has outlived the switch,
-    so state converges to `idle`. The scheduler's own 15-minute monotonic
-    timeout also ends the session.
-  - Firmware-backed entities: `Alarm State` (text sensor), `Alarm Ringing`
-    (binary sensor), `Alarm Snapshot` (text sensor), `Alarm Volume` (number,
-    0.1–1.0/step 0.01, persisted independently of the schedule).
+- the `voice_alarm:` component (component id `alarm_clock`) bound to an SNTP
+  `time:` platform (timezone from `!secret timezone`);
+- Wi-Fi credentials via `!secret`;
+- the M3 alarm wiring via `!include ../packages/alarm-wiring.yaml`;
 - `external_components:` entries that resolve `voice_alarm` (this repository's
   `components/`) and `voice_kit` (the pinned submodule checkout) locally,
   shadowing the upstream git source the package still declares (`ref: dev`,
   fetched on every build — documented caveat).
 
+### `test/satellite1.yaml`
+
+The second verified alarm target: the upstream
+[`FutureProofHomes/Satellite1-ESPHome`](https://github.com/FutureProofHomes/Satellite1-ESPHome)
+package at the pinned release (see
+[`doc/versions.md`](../doc/versions.md)), fetched from git at compile time
+(package + external components). The recipe adds:
+
+- a `logger` and an SNTP `time:` platform (the base package provides
+  neither; the full upstream user config does);
+- `esp32.framework.advanced.include_builtin_idf_components: [json,
+  esp_http_server]` — the package's `satellite1_radar` component needs both,
+  which ESPHome excludes by default and v0.2.1 does not request itself
+  (fixed upstream in `v0.2.2-beta.0` via the same mechanism);
+- the `voice_alarm:` component bound to the time source;
+- the M3 alarm wiring via `!include ../packages/alarm-wiring.yaml`.
+
+The wiring works identically on both devices through the same public hooks:
+the package's internal `timer_ringing` switch (local tone on repeat, media
+ducking, "stop" wake word, button stopping, LEDs, 15-minute self-stop) and
+the `external_media_player` (persisted alarm volume for the duration of the
+ring; the prior media volume is captured at ring start and restored exactly
+once when the ring ends). Dismissal: the package's button (Voice PE center
+button / Satellite1 action button) single click and the "stop" wake word turn
+the switch off; a 2-second poll in the wiring package then calls
+`dismiss_session()` so the scheduler converges to `idle`. Firmware-backed
+entities: `Alarm State` (text sensor), `Alarm Ringing` (binary sensor),
+`Alarm Snapshot` (text sensor), `Alarm Volume` (number, 0.1–1.0/step 0.01,
+persisted independently of the schedule).
+
 Credentials are not committed. Copy `test/secretstemplate.yaml` to
 `test/secrets.yaml` and fill in `wifi_ssid`, `wifi_password`, and `timezone`
-(`test/secrets.yaml` is gitignored); the `!secret` constructor resolves it from
-the recipe's directory.
+(`test/secrets.yaml` is gitignored); the `!secret` constructor resolves it
+from the recipe's directory. The Satellite1 recipe only needs `timezone`
+(it provisions Wi-Fi over BLE at setup time).
 
-The first build downloads the ESP-IDF framework, the XMOS voice-kit firmware
-(`v1.3.1`), and the MicroWakeWord models into `.tools/cache`; later builds are
-incremental. This layer is a compile check: speaker output and preemption,
-buttons, and wake-word recognition are covered by the hardware acceptance
-gates in `doc/implementation-plan.md`.
+The first build downloads the ESP-IDF framework, the upstream packages, the
+XMOS firmware images (Voice PE `v1.3.1`, Satellite1 `v1.0.3`), and the
+MicroWakeWord models into the ESPHome cache; later builds are incremental.
+This layer is a compile check: speaker output and preemption, buttons, and
+wake-word recognition are covered by the hardware acceptance gates in
+`doc/implementation-plan.md`.
 
 ## CI
 
 Every push to `main` and every PR runs native checks, the pinned host build/API
 test (including the `set_alarm` request/ack round trip), the pinned S3
 build/emulator test, the HA integration pytest suite (config flow, entry
-lifecycle, request/ack protocol, manifest/translation sanity), and a
-compile-only build of the Voice PE recipe (dummy secrets from
-`test/secretstemplate.yaml`). The emulator job uploads boot logs and the
-factory image/ELF. Daily and manually dispatched compatibility builds also
-compile against ESPHome stable, beta, and dev; those are compile checks, not
-extra verified emulator combinations.
+lifecycle, request/ack protocol, manifest/translation sanity), and
+compile-only builds of both real-device recipes (Voice PE and Satellite1,
+dummy secrets from `test/secretstemplate.yaml`). The emulator job uploads boot
+logs and the factory image/ELF. Daily and manually dispatched compatibility
+builds also compile against ESPHome stable, beta, and dev; those are compile
+checks, not extra verified emulator combinations.
 
 ## Coverage still to implement
 
 The scheduler, its versioned storage, and the M3 alarm layer (volume
 persistence in the component; ringing, media-volume capture/restore, and
-button/wake-word dismissal in the Voice PE recipe) are implemented and proven
-where possible in the layers above. The preferences probe remains fixture-only
+button/wake-word dismissal in the shared wiring package
+[`packages/alarm-wiring.yaml`](../packages/alarm-wiring.yaml), compile-verified
+against the Voice PE and Satellite1 packages) are implemented and proven where
+possible in the layers above. The preferences probe remains fixture-only
 storage separate from the alarm schedule. The custom-integration HA service,
 voice intents, and live firing events arrive with M4/M5.
 
@@ -235,9 +263,10 @@ Add implementation and regression tests for the HA `set_alarm`/`delete_alarm`/
 (M4), and the hardware acceptance cases (M3). Follow the acceptance table in
 [the implementation plan](../doc/implementation-plan.md).
 
-Use the physical Voice PE for sound/volume/preemption, microphone mute, real
-wake-word recognition while ringing, Wi-Fi outages, clock drift, and interrupted
-power/write testing. Injecting a wake-word callback only tests its software path.
+Use the physical Voice PE and Satellite1 for sound/volume/preemption,
+microphone mute, real wake-word recognition while ringing, Wi-Fi outages,
+clock drift, and interrupted power/write testing. Injecting a wake-word
+callback only tests its software path.
 
 ## References
 
