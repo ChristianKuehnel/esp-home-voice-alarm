@@ -1,5 +1,7 @@
 # esp-home-voice-alarm
 
+<img src="custom_components/voice_alarm/brand/icon@2x.png" alt="Voice Alarm Clock logo: a white alarm clock with a coral microphone" width="150" />
+
 > A voice-controlled alarm clock built with ESPHome and Home Assistant, bringing Alexa-style alarm functionality to your open-source smart home.
 
 ## The Idea
