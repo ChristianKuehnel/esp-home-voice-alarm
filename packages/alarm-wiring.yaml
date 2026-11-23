@@ -23,7 +23,8 @@
 #
 # What this file adds (see doc/implementation-plan.md, M3):
 # - api.actions.set_alarm: the esphome.<node>_set_alarm HA service with
-#   the structured request/ack (M1.4/M3.3 contract).
+#   the structured request/ack (M1.4/M3.3 contract). days_mask 0 is a
+#   one-shot at the explicit year/month/day; 1..127 is a repeating mask.
 # - wifi/api reboot_timeout 0s: the ADR-009 no-reboot policy.
 # - voice_alarm.on_state: entering RINGING turns the package's
 #   timer_ringing switch on (local tone on repeat, media ducking, "stop"
@@ -53,10 +54,13 @@ api:
         hour: int
         minute: int
         days_mask: int
+        year: int
+        month: int
+        day: int
       then:
         - lambda: |-
             id(alarm_clock).process_set_alarm_request(
-                request_id, expected_revision, hour, minute, days_mask);
+                request_id, expected_revision, hour, minute, days_mask, year, month, day);
         - api.respond:
             success: !lambda |-
               return id(alarm_clock).last_result().status == esphome::voice_alarm::RequestStatus::OK;

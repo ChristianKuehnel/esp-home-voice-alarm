@@ -150,8 +150,13 @@ both on every push, so the wiring stays verified.
   with `-` replaced by `_`, e.g. `esphome.my_voice_pe_set_alarm`). Data:
   `request_id` (any unique int), `expected_revision` (read from the
   `Alarm Snapshot` entity), `hour`, `minute`, `days_mask`
-  (`0` = one-shot, `31` = weekdays, `127` = daily). Until the voice intents
-  land (implementation plan M4/M5), this service is the way to set alarms.
+  (`0` = one-shot, `31` = weekdays, `127` = daily), and the date fields
+  `year`, `month`, `day` (required for one-shots: a valid calendar date in
+  1971–2100 that has not passed and is not in a DST gap; ignored for
+  repeating alarms). A scheduled one-shot is visible in the
+  `Alarm Snapshot` entity as `…;one_shot=YYYY-MM-DD HH:MM`. Until the voice
+  intents land (implementation plan M4/M5), this service is the way to set
+  alarms.
 
 ### 4. Compile and flash
 

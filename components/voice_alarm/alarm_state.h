@@ -137,6 +137,7 @@ class AlarmStateMachine {
 
   const AlarmEntry *find_entry(uint32_t id) const;
   const AlarmEntry *first_repeating() const;
+  const AlarmEntry *first_one_shot() const;
   size_t entry_count() const;
   const std::vector<AlarmEntry> &entries() const { return entries_; }
   uint8_t capacity() const { return capacity_; }

@@ -110,13 +110,18 @@ bool VoiceAlarmClock::dismiss_session() {
 }
 
 RequestResult VoiceAlarmClock::process_set_alarm_request(uint32_t request_id, uint32_t expected_revision,
-                                                          uint8_t hour, uint8_t minute, uint8_t days_mask) {
-  const SetAlarmRequest request{request_id, expected_revision, hour, minute, days_mask};
+                                                          uint8_t hour, uint8_t minute, uint8_t days_mask,
+                                                          uint16_t year, uint8_t month, uint8_t day) {
+  const SetAlarmRequest request{request_id, expected_revision, hour, minute, days_mask, year, month, day};
   RequestResult result = esphome::voice_alarm::process_set_alarm_request(request, this->revision_);
   if (result.status == RequestStatus::OK) {
     const std::time_t now =
         (this->clock_ != nullptr && this->clock_->now().is_valid()) ? this->clock_->now().timestamp : 0;
-    const MutateResult mutate = this->state_machine_.upsert_repeating(hour, minute, days_mask, now);
+    // Mask 0 is a one-shot at the explicit date; any other mask repeats.
+    const MutateResult mutate =
+        (days_mask == 0)
+            ? this->state_machine_.add_one_shot(year, month, day, hour, minute, now)
+            : this->state_machine_.upsert_repeating(hour, minute, days_mask, now);
     if (mutate.status != MutateStatus::OK) {
       result.status = this->map_mutate_error(mutate.status);
       result.revision = this->revision_;
@@ -149,11 +154,14 @@ RequestStatus VoiceAlarmClock::map_mutate_error(MutateStatus status) const {
       return RequestStatus::INVALID_MINUTE;
     case MutateStatus::INVALID_DAYS_MASK:
       return RequestStatus::INVALID_DAYS_MASK;
+    case MutateStatus::INVALID_DATE:
+      return RequestStatus::INVALID_DATE;
+    case MutateStatus::PAST_ONE_SHOT:
+      return RequestStatus::PAST_ONE_SHOT;
+    case MutateStatus::NONEXISTENT_TIME:
+      return RequestStatus::NONEXISTENT_TIME;
     case MutateStatus::CAPACITY:
     case MutateStatus::UNKNOWN_ID:
-    case MutateStatus::INVALID_DATE:
-    case MutateStatus::PAST_ONE_SHOT:
-    case MutateStatus::NONEXISTENT_TIME:
       return RequestStatus::STORAGE_ERROR;
   }
   return RequestStatus::STORAGE_ERROR;
@@ -179,7 +187,13 @@ std::string VoiceAlarmClock::last_error_message() const {
     case RequestStatus::INVALID_MINUTE:
       return "minute must be 0..59";
     case RequestStatus::INVALID_DAYS_MASK:
-      return "days_mask must be 1..127 for a repeating alarm";
+      return "days_mask must be 0 (one-shot) or 1..127 (repeating)";
+    case RequestStatus::INVALID_DATE:
+      return "the one-shot date is not a valid calendar date";
+    case RequestStatus::PAST_ONE_SHOT:
+      return "the one-shot time has already passed";
+    case RequestStatus::NONEXISTENT_TIME:
+      return "the one-shot time does not exist (DST gap)";
     case RequestStatus::STORAGE_ERROR:
       return "the alarm schedule could not be applied";
   }
@@ -193,7 +207,16 @@ std::string VoiceAlarmClock::snapshot() const {
                 this->revision_, entry != nullptr ? entry->hour : 0, entry != nullptr ? entry->minute : 0,
                 entry != nullptr ? entry->days_mask : 0, (entry != nullptr && entry->enabled) ? 1 : 0,
                 this->alarm_volume_);
-  return buffer;
+  std::string snapshot(buffer);
+  if (const AlarmEntry *one_shot = this->state_machine_.first_one_shot()) {
+    char extra[32];
+    std::snprintf(extra, sizeof(extra), ";one_shot=%04u-%02u-%02u %02u:%02u",
+                  static_cast<unsigned>(one_shot->year), static_cast<unsigned>(one_shot->month),
+                  static_cast<unsigned>(one_shot->day), static_cast<unsigned>(one_shot->hour),
+                  static_cast<unsigned>(one_shot->minute));
+    snapshot += extra;
+  }
+  return snapshot;
 }
 
 void VoiceAlarmClock::dump_config() {

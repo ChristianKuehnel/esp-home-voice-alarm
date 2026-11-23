@@ -1,5 +1,7 @@
 #include "alarm_request.h"
 
+#include "alarm_calendar.h"
+
 namespace esphome {
 namespace voice_alarm {
 
@@ -11,6 +13,9 @@ RequestResult process_set_alarm_request(const SetAlarmRequest &request, uint32_t
     status = RequestStatus::INVALID_MINUTE;
   } else if (request.days_mask > 127) {
     status = RequestStatus::INVALID_DAYS_MASK;
+  } else if (request.days_mask == 0 && !valid_calendar_date(request.year, request.month, request.day)) {
+    // Mask 0 is a one-shot alarm; a valid calendar date is what makes it one.
+    status = RequestStatus::INVALID_DATE;
   } else if (request.expected_revision != current_revision) {
     status = RequestStatus::STALE_REVISION;
   }
@@ -36,6 +41,12 @@ const char *request_status_name(RequestStatus status) {
       return "invalid_days_mask";
     case RequestStatus::STORAGE_ERROR:
       return "storage_error";
+    case RequestStatus::INVALID_DATE:
+      return "invalid_date";
+    case RequestStatus::PAST_ONE_SHOT:
+      return "past_one_shot";
+    case RequestStatus::NONEXISTENT_TIME:
+      return "nonexistent_time";
   }
   return "unknown";
 }
