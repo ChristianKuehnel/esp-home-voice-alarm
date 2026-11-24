@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from aioesphomeapi import APIClient, ExecuteServiceResponse, UserService
 from aioesphomeapi.core import APIConnectionCancelledError, TimeoutAPIError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SERVICE_SET_ALARM = "set_alarm"
 
 
@@ -51,7 +51,10 @@ class SetAlarmRequest:
     expected_revision: int
     hour: int
     minute: int
-    days_mask: int
+    days_mask: int  # 0 = one-shot at year/month/day; 1..127 = repeating mask.
+    year: int = 0  # One-shot only; ignored for repeating alarms.
+    month: int = 0
+    day: int = 0
 
 
 @dataclass(frozen=True)
@@ -98,6 +101,9 @@ async def set_alarm(
                 "hour": request.hour,
                 "minute": request.minute,
                 "days_mask": request.days_mask,
+                "year": request.year,
+                "month": request.month,
+                "day": request.day,
             },
             return_response=True,
             timeout=timeout,

@@ -251,6 +251,55 @@ async def contract(tmp_path):
             await expect(
                 "Test Alarm Snapshot", "revision=2;hour=8;minute=15;days_mask=127;enabled=1;volume=0.70"
             )
+
+            # One-shot (schema v2): days_mask 0 plus the explicit date creates
+            # a dated entry; the snapshot gains a one_shot segment. The host
+            # fixture has no clock, so the past-time check is deferred to the
+            # first tick and acceptance depends only on the calendar date.
+            ack = await alarm_protocol.set_alarm(
+                client,
+                services,
+                alarm_protocol.SetAlarmRequest(
+                    request_id=13,
+                    expected_revision=2,
+                    hour=12,
+                    minute=0,
+                    days_mask=0,
+                    year=2026,
+                    month=10,
+                    day=13,
+                ),
+            )
+            assert ack.status == "ok"
+            assert ack.revision == 3
+            await expect(
+                "Test Alarm Snapshot",
+                "revision=3;hour=8;minute=15;days_mask=127;enabled=1;volume=0.70;one_shot=2026-10-13 12:00",
+            )
+            # Invalid one-shot date: rejected verbatim; schedule and revision
+            # stay unchanged.
+            with pytest.raises(
+                alarm_protocol.VoiceAlarmCommandError,
+                match="the one-shot date is not a valid calendar date",
+            ):
+                await alarm_protocol.set_alarm(
+                    client,
+                    services,
+                    alarm_protocol.SetAlarmRequest(
+                        request_id=14,
+                        expected_revision=3,
+                        hour=12,
+                        minute=0,
+                        days_mask=0,
+                        year=2026,
+                        month=2,
+                        day=30,
+                    ),
+                )
+            await expect(
+                "Test Alarm Snapshot",
+                "revision=3;hour=8;minute=15;days_mask=127;enabled=1;volume=0.70;one_shot=2026-10-13 12:00",
+            )
         finally:
             await client.disconnect()
 

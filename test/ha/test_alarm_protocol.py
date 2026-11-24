@@ -51,6 +51,21 @@ def _request(**overrides):
     return SetAlarmRequest(**base)
 
 
+def _one_shot_request(**overrides):
+    base = {
+        "request_id": 8,
+        "expected_revision": 0,
+        "hour": 12,
+        "minute": 0,
+        "days_mask": 0,
+        "year": 2026,
+        "month": 10,
+        "day": 13,
+    }
+    base.update(overrides)
+    return SetAlarmRequest(**base)
+
+
 @pytest.mark.asyncio
 async def test_set_alarm_ack():
     """A successful command yields an ack with the new authoritative revision."""
@@ -65,9 +80,44 @@ async def test_set_alarm_ack():
     assert ack.request_id == 7
     assert ack.revision == 1
     # The request fields are passed as the action variables, response requested.
+    # Repeating requests carry zero date fields (ignored by the device).
     (name, data, opts), = client.calls
     assert name == SERVICE_SET_ALARM
-    assert data == {"request_id": 7, "expected_revision": 0, "hour": 7, "minute": 30, "days_mask": 31}
+    assert data == {
+        "request_id": 7,
+        "expected_revision": 0,
+        "hour": 7,
+        "minute": 30,
+        "days_mask": 31,
+        "year": 0,
+        "month": 0,
+        "day": 0,
+    }
+    assert opts["return_response"] is True
+
+
+@pytest.mark.asyncio
+async def test_set_alarm_one_shot_payload():
+    """Schema v2: days_mask 0 plus the explicit date selects a one-shot."""
+    client = FakeClient(
+        ExecuteServiceResponse(call_id=1, success=True, response_data=_ack_payload(request_id=8))
+    )
+
+    ack = await set_alarm(client, [_service()], _one_shot_request())
+
+    assert ack.status == "ok"
+    (name, data, opts), = client.calls
+    assert name == SERVICE_SET_ALARM
+    assert data == {
+        "request_id": 8,
+        "expected_revision": 0,
+        "hour": 12,
+        "minute": 0,
+        "days_mask": 0,
+        "year": 2026,
+        "month": 10,
+        "day": 13,
+    }
     assert opts["return_response"] is True
 
 

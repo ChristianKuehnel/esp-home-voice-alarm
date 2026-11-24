@@ -6,7 +6,9 @@ namespace esphome {
 namespace voice_alarm {
 
 // Request/acknowledgment protocol version advertised in action responses.
-constexpr uint32_t kRequestSchemaVersion = 1;
+// v2 added the one-shot date fields (year/month/day); days_mask 0 selects a
+// one-shot at that explicit date, 1..127 a repeating weekday mask.
+constexpr uint32_t kRequestSchemaVersion = 2;
 
 enum class RequestStatus : uint8_t {
   OK = 0,
@@ -15,6 +17,9 @@ enum class RequestStatus : uint8_t {
   INVALID_MINUTE = 3,
   INVALID_DAYS_MASK = 4,
   STORAGE_ERROR = 5,
+  INVALID_DATE = 6,
+  PAST_ONE_SHOT = 7,
+  NONEXISTENT_TIME = 8,
 };
 
 struct SetAlarmRequest {
@@ -22,7 +27,10 @@ struct SetAlarmRequest {
   uint32_t expected_revision;
   uint8_t hour;
   uint8_t minute;
-  uint8_t days_mask;
+  uint8_t days_mask;  // 0 = one-shot at year/month/day; 1..127 = weekday mask.
+  uint16_t year{0};   // One-shot only; ignored for repeating alarms.
+  uint8_t month{0};
+  uint8_t day{0};
 };
 
 struct RequestResult {

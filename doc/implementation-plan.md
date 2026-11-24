@@ -66,7 +66,9 @@ The owner has a Voice PE and working HA Assist available. Sequence: establish a 
 - One targeted HA→device action on the host fixture (production-style, not a `test_*` action): request with ID + expected revision → device mutates, persists, and correlates the acknowledgment → HA refreshes the authoritative snapshot.
 - Record the exact wire mapping, schema version, and the rejection behavior for incompatible firmware.
 
-Implementation: `components/voice_alarm/alarm_request.{h,cpp}` (pure C++ validation, `request_id` echo, revision bump after durable persistence); host device action `set_alarm` with an `api.respond` v1 acknowledgment; `custom_components/voice_alarm/alarm_protocol.py` with typed errors (`UnsupportedFirmwareError`, `StaleRevisionError` carrying the authoritative revision, `VoiceAlarmCommandError`). Native checks, host e2e round trip (accept/stale/invalid + restart keeps revision), and HA-venv protocol unit tests per the matrix in `doc/versions.md`.
+Implementation: `components/voice_alarm/alarm_request.{h,cpp}` (pure C++ validation, `request_id` echo, revision bump after durable persistence); host device action `set_alarm` with an `api.respond` v2 acknowledgment
+(schema v2 adds the one-shot date fields `year`/`month`/`day`; `days_mask`
+`0` creates a one-shot at that explicit date); `custom_components/voice_alarm/alarm_protocol.py` with typed errors (`UnsupportedFirmwareError`, `StaleRevisionError` carrying the authoritative revision, `VoiceAlarmCommandError`). Native checks, host e2e round trip (accept/stale/invalid + restart keeps revision), and HA-venv protocol unit tests per the matrix in `doc/versions.md`.
 
 *Acceptance:* an end-to-end test passes via the native API against the compiled host binary; incompatible/older firmware is rejected with a clear error.
 

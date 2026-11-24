@@ -87,22 +87,28 @@ restart; the volume also appears in the `Alarm Snapshot` text.
 Preferences and logs are isolated in pytest's temporary directory. Failure
 output includes the process log.
 
-### `set_alarm` wire mapping (schema version 1)
+### `set_alarm` wire mapping (schema version 2)
 
 The device exposes the user action `set_alarm` with integer variables
-`request_id`, `expected_revision`, `hour`, `minute`, `days_mask`. HA calls it
-via `APIClient.execute_service(service, data, return_response=True)` and
-receives an `ExecuteServiceResponse`:
+`request_id`, `expected_revision`, `hour`, `minute`, `days_mask`, and the
+one-shot date fields `year`, `month`, `day`. `days_mask` `0` selects a
+one-shot alarm at the explicit date (which must be a valid calendar date in
+1971–2100); `1..127` selects a repeating weekday mask (the date fields are
+ignored for repeating alarms). HA calls it via
+`APIClient.execute_service(service, data, return_response=True)` and receives
+an `ExecuteServiceResponse`:
 
 - `success`: `true` only for `status: "ok"`.
 - `error_message`: the device-side rejection reason (for example
-  `hour must be 0..23`, or
+  `hour must be 0..23`, `the one-shot date is not a valid calendar date`,
+  `the one-shot time has already passed`, or
   `expected_revision does not match the device revision`); empty on success.
 - `response_data`: JSON, e.g.
-  `{"schema_version": 1, "request_id": 9, "status": "ok", "revision": 1}`.
+  `{"schema_version": 2, "request_id": 9, "status": "ok", "revision": 1}`.
    `revision` is always the device's current authoritative revision;
    `request_id` echoes the request. `status` is one of `ok`, `stale_revision`,
-   `invalid_hour`, `invalid_minute`, `invalid_days_mask`, `storage_error`.
+   `invalid_hour`, `invalid_minute`, `invalid_days_mask`, `invalid_date`,
+   `past_one_shot`, `nonexistent_time`, `storage_error`.
 
 Rejection semantics: a stale or invalid request changes neither the schedule
 nor the revision, and the acknowledgment still reports the current revision so
@@ -258,9 +264,12 @@ possible in the layers above. The preferences probe remains fixture-only
 storage separate from the alarm schedule. The custom-integration HA service,
 voice intents, and live firing events arrive with M4/M5.
 
-Add implementation and regression tests for the HA `set_alarm`/`delete_alarm`/
-`stop`/`list_alarms` service layer (M4), one-shot creation through the wire
-(M4), and the hardware acceptance cases (M3). Follow the acceptance table in
+One-shot creation through the wire is implemented (schema version 2:
+`days_mask` `0` plus the explicit `year`/`month`/`day` date fields), including
+host e2e coverage of the accept and invalid-date paths. Add implementation
+and regression tests for the HA `set_alarm`/`delete_alarm`/`stop`/
+`list_alarms` service layer (M4) and the hardware acceptance cases (M3).
+Follow the acceptance table in
 [the implementation plan](../doc/implementation-plan.md).
 
 Use the physical Voice PE and Satellite1 for sound/volume/preemption,

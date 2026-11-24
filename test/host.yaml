@@ -22,10 +22,13 @@ api:
         hour: int
         minute: int
         days_mask: int
+        year: int
+        month: int
+        day: int
       then:
         - lambda: |-
             id(alarm_clock).process_set_alarm_request(
-                request_id, expected_revision, hour, minute, days_mask);
+                request_id, expected_revision, hour, minute, days_mask, year, month, day);
         - api.respond:
             success: !lambda |-
               return id(alarm_clock).last_result().status == esphome::voice_alarm::RequestStatus::OK;

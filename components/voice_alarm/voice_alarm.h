@@ -33,12 +33,16 @@ class VoiceAlarmClock : public PollingComponent {
 
   // Runs the request through the pure processor, applies accepted requests to the
   // state machine, and commits the new revision to durable storage before
-  // returning. Rejected requests change neither the schedule nor the revision.
-  RequestResult process_set_alarm_request(uint32_t request_id, uint32_t expected_revision,
-                                          uint8_t hour, uint8_t minute, uint8_t days_mask);
+  // returning. days_mask 0 creates a one-shot alarm at year/month/day (the
+  // date fields are ignored for repeating alarms). Rejected requests change
+  // neither the schedule nor the revision.
+  RequestResult process_set_alarm_request(uint32_t request_id, uint32_t expected_revision, uint8_t hour,
+                                          uint8_t minute, uint8_t days_mask, uint16_t year, uint8_t month,
+                                          uint8_t day);
 
   // Key=value snapshot for HA refresh, e.g.
-  // "revision=1;hour=7;minute=0;days_mask=31;enabled=1;volume=0.70".
+  // "revision=1;hour=7;minute=0;days_mask=31;enabled=1;volume=0.70", plus a
+  // ";one_shot=YYYY-MM-DD HH:MM" segment while a one-shot alarm is scheduled.
   std::string snapshot() const;
 
   // Test hook for the clock-less host fixture: advances the scheduler and
